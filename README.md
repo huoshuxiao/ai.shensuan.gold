@@ -7,15 +7,17 @@
  1. python path: /usr/bin/python3.10
  2. 依赖通过requirements.txt安装，不使用命令安装。源下载失败，改用国内源
  3. 给出实现流程，逐步实现
- 4. 给出适用opencode和qoder的规则
+ 4. 给出适用opencode和qoder的规则文件
  5. 使用敏捷用台账md文件管理任务情况，有TODO/Process/Done/ISSUE/PANDING/RISK等
  6. 任务DONE时，自动git commit
  7. ~/miniconda3/
  8. docker
  9. 代码必须有测试用例
  10. 机器配置，ubuntu 20.04,机器配置16G内存，2G显存，i7-6700HQ CPU
- 11. rdagent 本地llm(qwen3.5:4b或qwen3.5:9b或deepseek-r1:8b 可以用时间换结论)
+ 11. rdagent 本地llm(qwen3.5:9b/qwen3.5:4b/qwen2.5:7b/deepseek-r1:8b 可以用时间换结论)
  12. 手动交易。交易数据手动录入系统
+ 13. 日志保留7天
+ 14. 程序运行链路图，要有节点状态，比如LLM或数据超时，通过链路能展示，不需要通过日志才发现断路情况
 
 ## Links
 

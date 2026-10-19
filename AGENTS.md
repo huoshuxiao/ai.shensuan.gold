@@ -1213,9 +1213,8 @@ src/test/python/com/sun/shensuan/gold/
 - Python：`/usr/bin/python3.10`，实测 3.10.17。
 - 依赖只通过 `requirements.txt` 安装；不使用临时 `pip install` 改环境。
 - 源下载失败时改用国内镜像；镜像地址与失败记录写入交付说明。
-- README 第 7 条写 `/home/text/miniconda3`；**本机实测该路径不存在**。实际使用 `~/miniconda3`，RD-Agent 在 `~/miniconda3/envs/rdagent`。
+- README 第 7 条使用 `~/miniconda3`，RD-Agent 在 `~/miniconda3/envs/rdagent`。
 - conda 根路径做成配置项 `CONDA_ROOT`，默认 `~/miniconda3`；不得在代码里写死。
-- 这是 README 与现状的已知差异：不静默改 README；在本文件与交付说明中标注，待用户决定是否修订 README。
 
 ### 15.3 requirements 与依赖
 
@@ -1257,7 +1256,7 @@ src/test/python/com/sun/shensuan/gold/
 
 ### 15.7 日志
 
-- JSONL；按日轮转；保留至少 90 天。
+- JSONL；按日轮转；保留 7 天。
 - 每次运行一个 `run_id`；阶段、状态、耗时、错误码齐全。
 - LLM 原始输出单独存 `data/decisions/.../llm/`；日志只存摘要与哈希。
 - 错误日志不得吞异常；必须带堆栈与上下文。
@@ -1304,7 +1303,7 @@ src/test/python/com/sun/shensuan/gold/
 | 4 | opencode 与 qoder 规则 | §20 | 行为单一事实源；配置只作指针 |
 | 5 | 敏捷台账，TODO/Process/Done/ISSUE/PANDING/RISK | §16 | `看板.md`；`PANDING` 规范化为 `PENDING` 并备注原词 |
 | 6 | 任务 DONE 自动 git commit | §16.5 | 仅 commit 不 push；有失败闸；显式路径 |
-| 7 | `/home/text/miniconda3` | §15.2 | 实测不存在；用 `~/miniconda3`；配置化；不静默改 README |
+| 7 | `~/miniconda3` | §15.2 | 配置化 |
 | 8 | Docker | §15.8 | Dockerfile + `docker run`；无 compose |
 | 9 | 代码必须有测试用例 | §17 | 离线 pytest；负向测试；性能预算 |
 | 10 | 16GB 内存/2GB 显存/i7-6700HQ | §15.10 | 单实例 LLM；内存预检；峰值 <9.5GB |
@@ -1658,7 +1657,7 @@ python src/main/python/com/sun/shensuan/gold/cli.py ui
 
 ### 19.7 日志轮转
 
-- 按日轮转；保留 90 天；错误日志单独保留。
+- 按日轮转；保留 7 天；错误日志单独保留。
 - 不记录密钥、账号、个人财务明细。
 - LLM 原始输出单独存；日志只存摘要/哈希。
 
@@ -1697,13 +1696,11 @@ docker run --rm --network none -v "$PWD/data:/app/data:ro" gold-system:dev pytes
 
 1. 本文件 `AGENTS.md`。
 2. `README.md`、`PROJECT.md`。
-3. `plans/iron-harbor-shrew.md`（设计计划，若存在）。
-4. `docs/确定性规则.md`（若存在）。
-5. 与任务相关的配置、入口、测试。
-6. `看板.md`、`CHANGELOG.md`。
-7. `git status`、`git diff`、`git log`。
+3. 与任务相关的配置、入口、测试。
+4. `看板.md`、`CHANGELOG.md`。
+5. `git status`、`git diff`、`git log`。
 
-**不得**跳过 1–3 直接改代码；**不得**只看片段就下结论。
+**不得**跳过 1–2 直接改代码；**不得**只看片段就下结论。
 
 ### 20.2 任务协议
 
