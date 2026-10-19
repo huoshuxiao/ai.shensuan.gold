@@ -1,6 +1,6 @@
 # ai.shensuan.gold
 
-目标：跟踪上海期货交易所黄金au指数、纽约COMEX黄金等，黄金ETF量化研調與投資決策系統。别人贪婪时恐惧，别人恐惧时贪婪。缺乏金融领域专业知识，人工审查逻辑有困难。系统设计参照 **Links**
+目标：跟踪上海期货交易所黄金au指数、纽约COMEX黄金等，黄金ETF量化研調與投資決策系統。别人贪婪时恐惧，别人恐惧时贪婪。缺乏金融领域专业知识，人工审查逻辑有困难。读 **Links** 中链接的网站系统设计，生成AGENTS.md文件，输出系统设计。
 
 ## 技术栈
 
@@ -10,11 +10,12 @@
  4. 给出适用opencode和qoder的规则
  5. 使用敏捷用台账md文件管理任务情况，有TODO/Process/Done/ISSUE/PANDING/RISK等
  6. 任务DONE时，自动git commit
- 7. /home/text/miniconda3
+ 7. ~/miniconda3/
  8. docker
  9. 代码必须有测试用例
  10. 机器配置，ubuntu 20.04,机器配置16G内存，2G显存，i7-6700HQ CPU
  11. rdagent 本地llm(qwen3.5:4b或qwen3.5:9b或deepseek-r1:8b 可以用时间换结论)
+ 12. 手动交易。交易数据手动录入系统
 
 ## Links
 
