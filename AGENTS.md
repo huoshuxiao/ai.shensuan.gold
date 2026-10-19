@@ -43,7 +43,7 @@
 - 本文件与 README/PROJECT 的事实性冲突（例如数据源口径、目录结构）必须显式记录，不得静默改写 README/PROJECT；以本文件的实测值为准，并在交付说明中标注差异。
 - 发现规则自相矛盾时，先停手，指出冲突条款与建议口径；不得自行选择更宽松的一侧。
 
-### 0.4 Agent 快速契约（15 条）
+### 0.4 Agent 快速契约（16 条）
 
 1. **只做辅助**：产出研究、决策卡、纸面台账与人工下单清单；**禁止**接券商 API、自动下单、保存券商账号/密码/令牌。
 2. **数字有源**：所有进入决策的数字必须来自数据层或确定性计算；缺失标 `MISSING/DEGRADED`，**禁止**填 0、插值冒充真实值或让 LLM 猜。
@@ -60,6 +60,7 @@
 13. **单机约束**：16GB 内存、2GB 显存、i7-6700HQ；同一时刻只允许一个本地 LLM 实例；启动前关闭无关应用后测 `MemAvailable`，低于 `LLM_MIN_FREE_GB`（初始占位 9.5GB，P5 前按 9b 实测峰值重定）时走 `DETERMINISTIC`。
 14. **时间纪律**：07:00 冻结事实包，07:35 出决策卡，08:00 人工复核，09:30–14:30 人工执行；系统不阻塞、不代替人工。
 15. **本文件是行为单一事实源**：Qoder、opencode、脚本与人工操作都按本文件执行；其他说明只能是它的指针或补充，不得复制出第二套互相矛盾的规则。
+16. **原型先行**：非正式代码（原型、探针、一次性分析脚本、RD-Agent 候选实现）必须先放 `src/test/python/com/sun/shensuan/gold/experimental/` 验证，测试退出码 0 后才迁入 `src/main/...`；`main` 禁止导入 test 树；迁移后不得留下两份。
 
 ### 0.5 证据格式（所有 Agent 交付必须使用）
 
@@ -1262,6 +1263,7 @@ src/main/python/com/sun/shensuan/gold/
 src/test/python/com/sun/shensuan/gold/
   conftest.py
   fixtures/
+  experimental/    # 非正式代码；验证通过后迁入 main（§15.13）
   test_*.py
 ```
 
@@ -1353,7 +1355,7 @@ src/test/python/com/sun/shensuan/gold/
 - 不并发第二个本地 LLM；不与 RD-Agent 同时抢内存。
 - 大文件读取用流式/分块；不把全量面板复制多份。
 
-### 15.11 README 14 条约束映射
+### 15.11 README 15 条约束映射
 
 | # | README 约束 | 本文件落点 | 执行口径 |
 |---|---|---|---|
@@ -1361,7 +1363,7 @@ src/test/python/com/sun/shensuan/gold/
 | 2 | 依赖通过 requirements.txt，国内源 | §15.3 | 不临时 pip；失败换国内镜像并记录 |
 | 3 | 给出实现流程，逐步实现 | §18 | P0–P8，顺序不可颠倒 |
 | 4 | opencode 与 qoder 规则文件 | §20 | 行为单一事实源；配置只作指针 |
-| 5 | 敏捷台账，TODO/Process/Done/ISSUE/PANDING/RISK | §16 | `看板.md`；`PANDING` 规范化为 `PENDING` 并备注原词 |
+| 5 | 敏捷台账，TODO/Process/Done/ISSUE/PENDING/RISK | §16 | `看板.md`；状态词与 README 一致 |
 | 6 | 任务 DONE 自动 git commit | §16.5 | 仅 commit 不 push；有失败闸；显式路径 |
 | 7 | `~/miniconda3` | §15.2 | 配置化 |
 | 8 | Docker | §15.8 | Dockerfile + `docker run`；无 compose |
@@ -1371,6 +1373,7 @@ src/test/python/com/sun/shensuan/gold/
 | 12 | 手动交易，交易数据手动录入 | §13.2、§13.6、§14.2 | 人工回录 `FILL`；不接券商；不保存账号/密码/令牌 |
 | 13 | 日志保留 7 天 | §15.7、§19.7 | 在线日志 7 天；日志不进 2 年备份 |
 | 14 | 运行链路图 + 节点状态 | §4.5、§14.1、§17.9 | 每节点写 `pipeline_status.json`；超时/失败在链路页直接可见 |
+| 15 | 非正式代码先在 test 目录验证，成功后移入 main | §0.4、§15.13、§17.2、§20.7 | 原型放 `src/test/.../experimental/`；pytest EXIT=0 并过依赖/密钥/确定性闸后迁移；main 禁止导入 test |
 
 ### 15.12 依赖与版本策略
 
@@ -1378,6 +1381,35 @@ src/test/python/com/sun/shensuan/gold/
 - 固定关键版本：pandas、numpy、akshare、streamlit、pytest、pydantic、PyYAML、requests、xlrd。
 - 升级依赖必须跑全量离线测试 + 数据契约测试；记录 CHANGELOG。
 - 不引入需要 GPU 的包；不引入需要常驻服务的包。
+
+### 15.13 非正式代码 test → main 晋级
+
+README 第 15 条：非正式代码先在 `test` 目录验证，验证成功后再移入 `main`。
+
+**原型位置**：`src/test/python/com/sun/shensuan/gold/experimental/<topic>/`；每个原型模块必须配对应的 `test_*.py`；禁止在 `src/main` 下建试验分支、临时开关或 TODO 占位。
+
+**什么算非正式代码**：新策略/因子原型、数据源探针、一次性分析脚本、RD-Agent 候选实现、未定型的 UI/回测实验。纯报告、图表、缓存等非代码产物不算，放 `report/` 或系统临时目录；仓库内临时目录必须由 `.gitignore` 排除。
+
+**验证闸（全部满足才可迁移）**：
+
+1. 对应 `pytest` 通过，退出码 0，有输出证据。
+2. 离线可跑；网络用例必须标 `@pytest.mark.network`，默认不跑。
+3. 确定性可复现：同一输入、同一配置得到同一输出；随机种子固定。
+4. 无密钥、无 `data/live` 读写、无仓库外写盘。
+5. 依赖已在 `requirements.txt`；不新增数据库、常驻服务或端口。
+6. 测试覆盖类型、边界与失败分支，不是只测“函数能跑”。
+
+**迁移动作**：
+
+- 移动到 `src/main/python/com/sun/shensuan/gold/<module>/`，更新导入路径与 `_bootstrap`。
+- 删除 test 树中的旧原型，禁止两处并存；对应测试迁到正式测试位置，或保留为回归测试。
+- 迁移后跑全量离线 `pytest`，记录退出码与通过/失败条数。
+
+**架构硬闸**：`src/main/**` 禁止导入 `src.test.**`。离线测试必须有一条静态检查（如 `test_main_does_not_import_test`），命中即失败。
+
+**记录**：看板任务写 `prototype_path → main_path`、验证命令与退出码、迁移 commit。未通过验证的原型不得进入人工清单、决策卡或生产日链。
+
+**范围澄清**：缺陷修复不属于“非正式代码”，但仍必须先写失败测试、再改 `main`，不得以“紧急”为由跳过测试。
 
 ---
 
@@ -1409,7 +1441,7 @@ src/test/python/com/sun/shensuan/gold/
 | `PENDING` | 等待外部输入/用户决策 | 写明等谁、等什么 |
 | `RISK` | 已识别风险 | 写明触发条件、缓解、 owner |
 
-**README 的 `PANDING` 是笔误**：本文件与看板统一写 `PENDING`，并在看板备注“原词 PANDING”；不静默改 README，待用户决定是否修订。
+状态词与 README 第 5 条一致：`TODO/PROCESS/DONE/ISSUE/PENDING/RISK`。
 
 ### 16.3 任务规则
 
@@ -1438,6 +1470,7 @@ src/test/python/com/sun/shensuan/gold/
 - 文档、看板、CHANGELOG 同步。
 - 变更文件清单与增删行数明确。
 - 没有把 `计划` 写成 `现状`。
+- 非正式代码已按 §15.13 在 test 树验证并迁入 main；`main` 无原型残留、无 test 导入。
 
 ### 16.5 自动提交协议
 
@@ -1460,7 +1493,7 @@ src/test/python/com/sun/shensuan/gold/
 - 每日决策 JSON/报告不逐日提交；按周归档提交，避免噪声。
 - `data/live/`、`.env`、原始缓存、模型文件永不提交。
 
-**与 README 的差异**：README 第 6 条只要求“任务 DONE 自动 commit”；本节额外要求测试、数据闸、密钥扫描、文档同步全部通过，并明确不 push。这是有意的更严口径；若用户要求按 README 字面放宽，需当回合显式指令。
+**与 README 的关系**：README 第 6 条要求“任务 DONE 自动 git commit，不 push”，本节与之对齐；额外要求测试、数据闸、密钥扫描、文档同步全部通过。这是有意的更严口径；若用户要求按 README 字面放宽，需当回合显式指令。
 
 **失败闸：**
 
@@ -1484,7 +1517,7 @@ src/test/python/com/sun/shensuan/gold/
 
 ### 16.8 与兄弟项目的提交约定冲突
 
-兄弟项目（`ai.shensuan.git`）的 `AGENT.md` 有“未经用户明确要求不得 commit”的约定。本项目 README 第 6 条明确要求“任务 DONE 时自动 git commit”，因此本项目按本文件执行：
+兄弟项目（`ai.shensuan.git`）的 `AGENT.md` 有“未经用户明确要求不得 commit”的约定。本项目 README 第 6 条明确要求“任务 DONE 时自动 git commit，不 push”，因此本项目按本文件执行：
 
 - 仅在本仓库、仅 `DONE`、仅 commit、不 push。
 - 用户当前回合的指令优先；若用户说“不要提交”，则不提交。
@@ -1516,6 +1549,7 @@ src/test/python/com/sun/shensuan/gold/
 | 账本 | 哈希链、篡改检测、对账 | 改一条→链断 |
 | UI | AppTest、只读、无下单按钮 | 页面无 broker API |
 | 运维 | cron/Docker/备份恢复 | 恢复后哈希一致 |
+| 架构/流程 | main 不导入 test；原型迁移后无重复实现 | 静态导入检查命中 `src.main → src.test` 即失败；`experimental/` 残留检查 |
 
 ### 17.3 数据契约测试
 
@@ -1627,7 +1661,7 @@ src/test/python/com/sun/shensuan/gold/
 
 | 阶段 | 交付 | 验收闸 |
 |---|---|---|
-| **P0（当前）** | 本文件 `AGENTS.md`：系统设计与 Agent 行为规范 | 14 条 README 约束、8 个参考项目、4 项用户决策、地缘接口与 9 角色全覆盖；无代码/数据目录改动 |
+| **P0（当前）** | 本文件 `AGENTS.md`：系统设计与 Agent 行为规范 | 15 条 README 约束、8 个参考项目、4 项用户决策、地缘接口与 9 角色全覆盖；无代码/数据目录改动 |
 | P1 | 工程骨架、`看板.md`、requirements、pytest.ini、配置模板；数据适配器（含 GPR/快讯/油价/事件日历）、原始/规范化层、PIT、质量闸、手工 CSV | 5 年 518880/SGE/GC + AU0 全历史实测；GPR 至 2026-10-13 入库；缺口可见；离线测试绿 |
 | P2 | 特征注册表（含地缘组）、事实包、regime（含 `GEO_SHOCK`）、仓位带、风控引擎、规则 trace | 黄金回放逐位一致；边界/无未来函数测试；带与否决不变量；地缘字段缺失时只读/只减 |
 | P3 | 事件驱动回测、费用、B0–B4、walk-forward、指标报告 | 会计恒等式；基准可复现；样本外报告；逆向叠加与 H-GEO-1/2 启用/关闭结论 |
@@ -1638,6 +1672,8 @@ src/test/python/com/sun/shensuan/gold/
 | P8 | 8–12 周评估、合规审计、术语表、v1.0 | 预注册指标达标；LLM/逆向叠加/地缘 go-no-go；用户签字；零真实订单 |
 
 **顺序不可颠倒**：P1–P4 的确定性内核、测试与回测必须先于 P5 的 LLM 和 P6 的 UI。
+
+**原型晋级**：所有阶段的新模块遵守 §15.13——非正式代码先在 test 树验证，通过后迁入 main；验收证据须含迁移前后的 pytest 退出码。
 
 **P0 当前状态（P0 设计定稿时）**：只新增本文件；README.md、PROJECT.md、.gitignore 的用户改动未触碰；不创建代码、配置、数据或台账文件。
 
@@ -1789,6 +1825,7 @@ docker run --rm --network none -v "$PWD/data:/app/data:ro" gold-system:dev pytes
 - 每次有意义改动后跑相关测试；失败先定位，不跳过。
 - 不安装全局依赖；不修改 `.env`/CI/风控阈值，除非任务明确。
 - 不把仓库内容/用户数据上传到第三方；不调用外部 LLM 处理敏感数据。
+- 非正式代码先放 test 树验证，达标后再迁入 main（§15.13）。
 - 发现与任务无关的 bug：开 `ISSUE`，不夹带修复。
 
 **完成后：**
@@ -1870,7 +1907,7 @@ docker run --rm --network none -v "$PWD/data:/app/data:ro" gold-system:dev pytes
 | 产出 | 因子假设、表达式、沙箱回测结果；写入隔离目录 |
 | 输入 | 只读行情/特征；不得读 `data/live`、密钥、个人数据 |
 | 因子 DSL | 受限表达式；禁止任意代码/网络/文件写 |
-| 晋升 | 必须过三环裁判（IC/ICIR、组合层、判重）+ 测试 + 用户批准 |
+| 晋升 | 必须过三环裁判（IC/ICIR、组合层、判重）+ 测试 + 用户批准；候选实现先落 test 树验证，再迁入 main（§15.13） |
 | 记录 | 模型、提示词、种子、代码哈希、数据快照 |
 | 并发 | 不与委员会 LLM 同时跑；单实例 |
 | 超时/崩溃 | 只 kill 自己的进程；保留日志；开 `ISSUE` |
