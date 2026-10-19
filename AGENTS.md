@@ -3,7 +3,7 @@
 > **状态：设计蓝图 v0.1（2026-10-19）。仓库尚无实现代码。**
 > 本文件描述目标系统、判据口径与 Agent 行为规范，**不代表任何功能已经实现、测试已经通过或策略已经盈利**。
 > 适用范围：在本仓库工作的编码 Agent、研究 Agent、LLM 委员会、RD-Agent 与人工操作者。
-> 本文件不构成投资建议；系统不接券商、不自动下单、不保存交易凭证。
+> 本文件不构成投资建议；系统不接券商、不自动下单、不保存券商账号/密码/令牌；交易数据由人工录入。
 
 ---
 
@@ -40,12 +40,12 @@
 冲突处理：
 
 - **安全边界永远优先**：即使 README 或某个参考项目鼓励自动交易，也不得突破“1+2”边界。
-- 本文件与 README 的事实性冲突（例如 conda 路径）必须显式记录，不得静默改写 README；以本文件 §15.2 的实测值为准，并在交付说明中标注差异。
+- 本文件与 README/PROJECT 的事实性冲突（例如数据源口径、目录结构）必须显式记录，不得静默改写 README/PROJECT；以本文件的实测值为准，并在交付说明中标注差异。
 - 发现规则自相矛盾时，先停手，指出冲突条款与建议口径；不得自行选择更宽松的一侧。
 
 ### 0.4 Agent 快速契约（15 条）
 
-1. **只做辅助**：产出研究、决策卡、纸面台账与人工下单清单；**禁止**接券商 API、自动下单、保存交易账号或凭证。
+1. **只做辅助**：产出研究、决策卡、纸面台账与人工下单清单；**禁止**接券商 API、自动下单、保存券商账号/密码/令牌。
 2. **数字有源**：所有进入决策的数字必须来自数据层或确定性计算；缺失标 `MISSING/DEGRADED`，**禁止**填 0、插值冒充真实值或让 LLM 猜。
 3. **带内选择**：确定性规则先算卫星仓区间 `[L,H]`；LLM 只能在区间内选目标；风控经理可否决到 0；LLM 失败回退 `T_det`。
 4. **新闻不外泄**：v1 不把新闻原文喂给 LLM；只做确定性关键词/事件抽取，抽取规则带版本号与回归测试。
@@ -56,8 +56,8 @@
 9. **不 push**：Agent 永不执行 `git push`；commit 仅在任务 `DONE` 且全部闸门通过时执行，禁止 amend、force、跳过 hooks。
 10. **密钥不入库**：密钥只进 `.env`；不写日志、不进决策卡、不进 git；`data/live/` 永不提交。
 11. **结论带证据**：每条结论写清命令、退出码、`文件:行`、覆盖范围与未查项；禁止“测试已通过”这类无输出表述。
-12. **危险动作停手**：真实下单、券商凭证、删除数据、改风控阈值、push、装全局依赖、改 CI、外发内容，一律先询问。
-13. **单机约束**：16GB 内存、2GB 显存、i7-6700HQ；同一时刻只允许一个本地 LLM 实例；可用内存低于 9.5GB 时走 `DETERMINISTIC`。
+12. **危险动作停手**：真实下单、券商账号/密码/令牌、删除数据、改风控阈值、push、装全局依赖、改 CI、外发内容，一律先询问。
+13. **单机约束**：16GB 内存、2GB 显存、i7-6700HQ；同一时刻只允许一个本地 LLM 实例；启动前关闭无关应用后测 `MemAvailable`，低于 `LLM_MIN_FREE_GB`（初始占位 9.5GB，P5 前按 9b 实测峰值重定）时走 `DETERMINISTIC`。
 14. **时间纪律**：07:00 冻结事实包，07:35 出决策卡，08:00 人工复核，09:30–14:30 人工执行；系统不阻塞、不代替人工。
 15. **本文件是行为单一事实源**：Qoder、opencode、脚本与人工操作都按本文件执行；其他说明只能是它的指针或补充，不得复制出第二套互相矛盾的规则。
 
@@ -234,6 +234,7 @@ README 的 `Links` 含 8 个 GitHub 参考项目（`PROJECT.md` 是项目结构�
 - **cron**：工作日定时触发；不把密钥写进 crontab；失败写 `ISSUE` 并保留日志。
 - **Docker**：`Dockerfile + docker run`；本机没有 `docker compose`/`docker-compose`，compose 只作未来可选。
 - **无数据库、无消息队列、无对外端口**；状态全部落在 `data/`、`report/`、`logs/`。
+- **运行链路状态**：每个节点进入/退出都写 `data/decisions/<date>/pipeline_status.json`；链路页读状态文件，不把日志当作发现断路的唯一途径。
 
 ### 4.3 四种运行模式
 
@@ -257,6 +258,59 @@ README 的 `Links` 含 8 个 GitHub 参考项目（`PROJECT.md` 是项目结构�
 - `prev_hash/hash`：账本链式哈希。
 
 **可复现边界**：确定性事实包、规则、回测、账本哈希必须逐位可复现；LLM 文本因浮点/推理实现不保证逐位一致，但必须保存原始输出、参数、耗时与 digest，便于审计与重放。
+
+### 4.5 运行链路与节点状态
+
+**目标**：README 第 14 条要求“程序运行链路图要有节点状态，LLM 或数据超时能通过链路直接看到，不需要翻日志”。本节把这条落成可验收的设计。
+
+**节点清单（按执行顺序）**：
+
+```text
+preflight
+  → ingest.<source>（每个数据源一个节点）
+  → normalize
+  → quality_gate
+  → fact_pack
+  → deterministic
+  → committee.<role>（9 个角色各一个节点）
+  → citation_audit
+  → aggregate
+  → decision_card
+  → paper_ledger
+  → order_list
+```
+
+**状态枚举**：`PENDING/RUNNING/OK/FAILED/TIMEOUT/SKIPPED/DEGRADED`。
+
+| 状态 | 含义 | 链路展示 |
+|---|---|---|
+| `PENDING` | 尚未开始 | 灰色，显示依赖的上游节点 |
+| `RUNNING` | 正在执行 | 蓝色，显示已运行时长 |
+| `OK` | 成功 | 绿色，显示耗时与产物哈希 |
+| `FAILED` | 失败且不重试 | 红色，显示 `error_code` 与错误摘要 |
+| `TIMEOUT` | 超时 | 红色，显示超时阈值与已等待时长 |
+| `SKIPPED` | 因上游失败/预算不足跳过 | 黄色，显示跳过原因 |
+| `DEGRADED` | 成功但数据降级 | 黄色，显示降级原因 |
+
+**状态文件**：每个节点进入、退出、异常、超时都要写 `data/decisions/<date>/pipeline_status.json`。最小字段：
+
+```json
+{"node_id":"committee.risk_manager","status":"TIMEOUT","started_at":"2026-10-19T07:14:00+08:00","ended_at":"2026-10-19T07:14:45+08:00","duration_ms":45000,"error_code":"LLM_TIMEOUT","retry_count":0,"artifact_hash":null}
+```
+
+**规则**：
+
+- 每个节点用 `try/finally` 保证终态必写；进程崩溃时，下一次启动先把残留 `RUNNING` 且超过阈值的节点改 `TIMEOUT`。
+- `FAILED/TIMEOUT` 必须把下游节点标 `SKIPPED`，并在链路页画出断点；不得只写日志。
+- 状态文件原子写（临时文件 + `os.replace`），不得半截 JSON。
+- 链路页/CLI 只读状态文件；日志是补充证据，不是发现断路的唯一途径。
+- 链路页展示每个节点的状态、耗时、错误码、重试次数、最后更新时间和产物链接；移动端不是 v1 目标。
+
+**入口**：
+
+- CLI：`python ... cli.py status --date YYYY-MM-DD`。
+- Streamlit：§14.1 的“运行链路”tab；只读，不提供单节点重跑。
+- 验收测试：§17.2 链路层与 §17.9 UI 测试各有一条“人为制造数据源失败 + LLM 超时，链路页直接显示 `FAILED/TIMEOUT`，不读日志”。
 
 ---
 
@@ -826,7 +880,7 @@ satellite_cap = min(30%, 100% - core - cash_floor)
 
 | 参数 | 值 | 说明 |
 |---|---|---|
-| 模型 | `qwen3.5:9b`（Ollama，Q4） | 备选 `qwen3.5:4b`/`deepseek-r1:8b` 仅按配置切换 |
+| 模型 | `qwen3.5:9b`（Ollama，Q4） | 备选 `qwen3.5:4b`/`qwen2.5:7b`/`deepseek-r1:8b` 仅按配置切换 |
 | 思考 | `think=false` | 必须关闭；否则可能长时间无正文 |
 | 温度 | `0.1` | 降低随机性，但不承诺逐位复现 |
 | `num_ctx` | 8192 | 事实包 + 提示词 + 输出 |
@@ -1111,6 +1165,7 @@ T_final = T_committee
 |---|---|---|
 | 今日决策 | 决策卡、目标、证据、反方、失效条件、不行动 | 无 |
 | 数据健康 | 源状态、质量闸、缺失/降级/代理/修订、最后更新时间 | 无 |
+| 运行链路 | 各节点状态、耗时、超时/失败节点、断点传播、最后更新时间 | 无 |
 | 地缘政治与避险 | GPR 三层、事件严重度、市场确认、H-GEO 状态 | 无 |
 | 辩论与证据 | 9 角色观点、引用审计、风控否决、原始输出 | 无 |
 | 组合/纸面台账 | 核心/卫星/现金、NAV、成交、对账、哈希链 | 录成交 |
@@ -1124,6 +1179,7 @@ T_final = T_committee
 - 没有“下单”按钮；没有券商连接；没有 API key 输入框。
 - 录成交只写 `data/live/actual_fills.csv` 与账本 `FILL`；不改历史。
 - 手动触发必须二次确认，写操作日志；不得绕过质量闸。
+- “运行链路”页只读；重跑仍走“手动触发日链”，不在链路页单独重跑节点。
 - 只绑定 `127.0.0.1`；不对公网开放。
 
 ### 14.3 What-if
@@ -1164,6 +1220,8 @@ T_final = T_committee
 AGENTS.md
 README.md
 PROJECT.md
+docs/
+  确定性规则.md (解释性文档，不参与程序设计)
 看板.md
 CHANGELOG.md
 requirements.txt
@@ -1184,7 +1242,6 @@ data/
   paper/
   live/            # gitignored
 logs/
-temp/
 report/daily/YYYY-MM-DD/
 src/main/python/com/sun/shensuan/gold/
   _bootstrap.py
@@ -1207,6 +1264,8 @@ src/test/python/com/sun/shensuan/gold/
   fixtures/
   test_*.py
 ```
+
+> 说明：`docs/` 已存在（`确定性规则.md`）；`report/` 为计划新增，`PROJECT.md` 尚未登记，后续同步。
 
 ### 15.2 Python 与 conda
 
@@ -1274,40 +1333,44 @@ src/test/python/com/sun/shensuan/gold/
 - 只放 `.env`；`.env` 已在 `.gitignore`。
 - 不在代码、YAML、日志、决策卡、报告中出现。
 - 启动时检查必需密钥；缺失→明确报错，不静默降级到不安全路径。
-- v1 不需要券商密钥；未来也不得由 Agent 保存券商凭证。
+- v1 不需要券商密钥；未来也不得由 Agent 保存券商账号/密码/令牌。
 
 ### 15.10 硬件与性能
 
 | 项 | 约束 |
 |---|---|
 | 机器 | Ubuntu 20.04，16GB 内存，2GB 显存，i7-6700HQ |
-| 可用内存 | 探针约 10.0Gi；LLM 预检门槛 9.5GB |
+| 可用内存 | 见下方“内存闸”说明；9b 峰值未量 |
 | 本地 LLM | 单实例；CPU 推理；`num_gpu=0` |
 | 端到端热启动 | < 20min（07:05 确定性开始至 07:22 决策计算完成，不含抓取等待） |
-| 峰值内存 | < 9.5GB |
+| 峰值内存 | < 9.5GB（目标值，未实测） |
 | 日链确定性部分 | < 3min |
 | pytest | < 120s |
 | UI 加载 | < 3s |
 
-- 起 LLM 前检查可用内存与 swap；低于门槛走 `DETERMINISTIC`。
+- **内存闸**：`LLM_MIN_FREE_GB` 初始占位 9.5GB（未实测，P5 前按 9b 实测峰值重定）。闸门只在**启动前预检（06:20）**判定：先关闭本机不必要的应用，再测 `MemAvailable`；达标才起 LLM，不达标走 `DETERMINISTIC`。2026-10-19 21:05:09 CST `free -b` 读到 `MemAvailable=6,687,256,576 B`（6.23GiB，当时已用 8.0GiB）是**未关无关应用时的读数**，不作启动判定，也不代表系统跑不了；关闭应用后的启动读数与 9b 峰值均待 P5 实测。
+- 起 LLM 前检查 `MemAvailable` 与 swap；低于 `LLM_MIN_FREE_GB` 走 `DETERMINISTIC`。
 - 不并发第二个本地 LLM；不与 RD-Agent 同时抢内存。
 - 大文件读取用流式/分块；不把全量面板复制多份。
 
-### 15.11 README 11 条约束映射
+### 15.11 README 14 条约束映射
 
 | # | README 约束 | 本文件落点 | 执行口径 |
 |---|---|---|---|
 | 1 | Python 路径 `/usr/bin/python3.10` | §15.2 | 实测 3.10.17；只用这个解释器 |
 | 2 | 依赖通过 requirements.txt，国内源 | §15.3 | 不临时 pip；失败换国内镜像并记录 |
 | 3 | 给出实现流程，逐步实现 | §18 | P0–P8，顺序不可颠倒 |
-| 4 | opencode 与 qoder 规则 | §20 | 行为单一事实源；配置只作指针 |
+| 4 | opencode 与 qoder 规则文件 | §20 | 行为单一事实源；配置只作指针 |
 | 5 | 敏捷台账，TODO/Process/Done/ISSUE/PANDING/RISK | §16 | `看板.md`；`PANDING` 规范化为 `PENDING` 并备注原词 |
 | 6 | 任务 DONE 自动 git commit | §16.5 | 仅 commit 不 push；有失败闸；显式路径 |
 | 7 | `~/miniconda3` | §15.2 | 配置化 |
 | 8 | Docker | §15.8 | Dockerfile + `docker run`；无 compose |
 | 9 | 代码必须有测试用例 | §17 | 离线 pytest；负向测试；性能预算 |
-| 10 | 16GB 内存/2GB 显存/i7-6700HQ | §15.10 | 单实例 LLM；内存预检；峰值 <9.5GB |
-| 11 | rdagent 本地 LLM，可用时间换结论 | §11、§20.7 | qwen3.5:9b；单实例；冷启动可等但必须可降级 |
+| 10 | 16GB 内存/2GB 显存/i7-6700HQ | §15.10 | 单实例 LLM；启动前关闭无关应用并做内存预检；峰值目标 <9.5GB（未实测） |
+| 11 | rdagent 本地 LLM，四模型可用，时间换结论 | §11.3、§20.7 | qwen3.5:9b（主）；qwen3.5:4b / qwen2.5:7b / deepseek-r1:8b（备）；单实例 |
+| 12 | 手动交易，交易数据手动录入 | §13.2、§13.6、§14.2 | 人工回录 `FILL`；不接券商；不保存账号/密码/令牌 |
+| 13 | 日志保留 7 天 | §15.7、§19.7 | 在线日志 7 天；日志不进 2 年备份 |
+| 14 | 运行链路图 + 节点状态 | §4.5、§14.1、§17.9 | 每节点写 `pipeline_status.json`；超时/失败在链路页直接可见 |
 
 ### 15.12 依赖与版本策略
 
@@ -1397,6 +1460,8 @@ src/test/python/com/sun/shensuan/gold/
 - 每日决策 JSON/报告不逐日提交；按周归档提交，避免噪声。
 - `data/live/`、`.env`、原始缓存、模型文件永不提交。
 
+**与 README 的差异**：README 第 6 条只要求“任务 DONE 自动 commit”；本节额外要求测试、数据闸、密钥扫描、文档同步全部通过，并明确不 push。这是有意的更严口径；若用户要求按 README 字面放宽，需当回合显式指令。
+
 **失败闸：**
 
 - 任一测试失败→不 commit，开 `ISSUE`。
@@ -1444,6 +1509,7 @@ src/test/python/com/sun/shensuan/gold/
 | 单元 | 公式、单位换算、阈值、哈希 | `1 oz = 31.1034768 g`；RSI 边界 |
 | 数据契约 | 列名、类型、单位、时区、PIT 字段 | GPR `date` 列；`USD/CNY` /100 |
 | 集成 | 抓取→规范化→质量闸→事实包 | 缺失源→`DEGRADED`；零持仓→`DEGRADED` |
+| 链路 | 节点状态机、超时、失败传播、状态文件原子写 | 某节点超时→链路显示 `TIMEOUT`；下游 `SKIPPED` |
 | 回测 | 会计恒等式、费用、整手、停牌 | NAV 与现金流一致 |
 | 风控 | 区间不变量、回撤分级、换手 | `0 ≤ L ≤ H ≤ 30%`；core+sat+ 现金=100% |
 | LLM | schema、引用、越界、注入、超时 | 编数→invalid；越界→invalid |
@@ -1516,12 +1582,13 @@ src/test/python/com/sun/shensuan/gold/
 
 ### 17.9 UI 测试
 
-- Streamlit AppTest 覆盖 8 个 tab。
+- Streamlit AppTest 覆盖 9 个 tab。
 - 无“下单”按钮；无 broker API 调用；无密钥输入。
 - 只绑定 `127.0.0.1`。
 - What-if 不写账本、不调用 LLM。
 - 数据质量横幅在 RED 时可见。
 - 录成交只写允许的路径。
+- “运行链路”页：人为制造数据源失败与 LLM 超时，页面必须显示对应节点 `FAILED/TIMEOUT`，且不读日志也能看见。
 
 ### 17.10 自动提交 dry-run
 
@@ -1538,7 +1605,7 @@ src/test/python/com/sun/shensuan/gold/
 | LLM 委员会 | < 12min（07:05–07:17 调用预算） |
 | 端到端热启动 | < 20min（07:05 确定性开始至 07:22 决策计算完成，不含抓取等待） |
 | UI 加载 | < 3s |
-| 峰值内存 | < 9.5GB |
+| 峰值内存 | < 9.5GB（目标值，未实测） |
 
 性能测试必须在目标硬件（16GB/2GB/i7-6700HQ）上跑；不得用服务器数字冒充。
 
@@ -1560,19 +1627,19 @@ src/test/python/com/sun/shensuan/gold/
 
 | 阶段 | 交付 | 验收闸 |
 |---|---|---|
-| **P0（当前）** | 本文件 `AGENTS.md`：系统设计与 Agent 行为规范 | 11 条 README 约束、8 个参考项目、4 项用户决策、地缘接口与 9 角色全覆盖；无代码/数据目录改动 |
+| **P0（当前）** | 本文件 `AGENTS.md`：系统设计与 Agent 行为规范 | 14 条 README 约束、8 个参考项目、4 项用户决策、地缘接口与 9 角色全覆盖；无代码/数据目录改动 |
 | P1 | 工程骨架、`看板.md`、requirements、pytest.ini、配置模板；数据适配器（含 GPR/快讯/油价/事件日历）、原始/规范化层、PIT、质量闸、手工 CSV | 5 年 518880/SGE/GC + AU0 全历史实测；GPR 至 2026-10-13 入库；缺口可见；离线测试绿 |
 | P2 | 特征注册表（含地缘组）、事实包、regime（含 `GEO_SHOCK`）、仓位带、风控引擎、规则 trace | 黄金回放逐位一致；边界/无未来函数测试；带与否决不变量；地缘字段缺失时只读/只减 |
 | P3 | 事件驱动回测、费用、B0–B4、walk-forward、指标报告 | 会计恒等式；基准可复现；样本外报告；逆向叠加与 H-GEO-1/2 启用/关闭结论 |
 | P4 | 确定性日链、决策卡/研报、纸面账本、人工成交回录 | 20 日回放；账本零断链；卡片字段完整；缺口可见 |
-| P5 | LLM 客户端、提示词、9 角色 2 轮委员会、引用审计、clamp/降级 | 5 个真实交易日；schema 或降级 100%；零越界；地缘角色零原文引用；端到端热启动 <20min；峰值 <9.5GB |
+| P5 | LLM 客户端、提示词、9 角色 2 轮委员会、引用审计、clamp/降级 | 5 个真实交易日；schema 或降级 100%；零越界；地缘角色零原文引用；端到端热启动 <20min；峰值 <9.5GB（实测） |
 | P6 | Streamlit 全部页面、What-if、审计查看器、数据健康、成交录入 | AppTest 全页通过；只读行为；加载 <3s；无副作用 |
 | P7 | cron、Dockerfile/`docker run`、运行手册、20 日无人值守纸面运行 | 20/20 次运行；恢复演练；仅本地绑定；备份可恢复 |
 | P8 | 8–12 周评估、合规审计、术语表、v1.0 | 预注册指标达标；LLM/逆向叠加/地缘 go-no-go；用户签字；零真实订单 |
 
 **顺序不可颠倒**：P1–P4 的确定性内核、测试与回测必须先于 P5 的 LLM 和 P6 的 UI。
 
-**P0 当前状态**：只新增本文件；README.md、PROJECT.md、.gitignore 的用户改动未触碰；不创建代码、配置、数据或台账文件。
+**P0 当前状态（P0 设计定稿时）**：只新增本文件；README.md、PROJECT.md、.gitignore 的用户改动未触碰；不创建代码、配置、数据或台账文件。
 
 ---
 
@@ -1582,7 +1649,7 @@ src/test/python/com/sun/shensuan/gold/
 
 | 时间 | 动作 | 失败处理 |
 |---|---|---|
-| 06:20 | 预检：磁盘/内存/锁/配置/模型 | 内存 <9.5GB→跳过 LLM；磁盘不足→停止 |
+| 06:20 | 预检：关闭无关应用，测磁盘/内存/锁/配置/模型 | `MemAvailable < LLM_MIN_FREE_GB`→跳过 LLM；磁盘不足→停止 |
 | 06:30 | 顺序抓取：美股收盘、SPDR、中国前收盘、GPR、快讯、WTI | 重试 2 次；失败→缓存/手工/`MISSING` |
 | 06:45 | 规范化/去重/质量闸 | RED→`DEGRADED`；缺口显式 |
 | 07:00 | 冻结事实包（`available_at <= cutoff`） | 哈希写入；不可变 |
@@ -1594,6 +1661,8 @@ src/test/python/com/sun/shensuan/gold/
 | 09:30–14:30 | 人工按清单执行 | 价格带外→不追价 |
 | 15:30 | 回录成交 | 未成交→`UNFILLED` |
 | 15:45 | 纸面/实际对账、NAV、链校验 | 差异→`ISSUE`，不加仓 |
+
+每个节点进入/退出都写 `data/decisions/<date>/pipeline_status.json`；链路页直接读状态文件，日志不是发现断路的唯一途径（§4.5）。
 
 ### 19.2 命令（计划，P1 落地）
 
@@ -1607,6 +1676,7 @@ python src/main/python/com/sun/shensuan/gold/cli.py committee
 python src/main/python/com/sun/shensuan/gold/cli.py report
 python src/main/python/com/sun/shensuan/gold/cli.py paper
 python src/main/python/com/sun/shensuan/gold/cli.py reconcile
+python src/main/python/com/sun/shensuan/gold/cli.py status --date YYYY-MM-DD
 python src/main/python/com/sun/shensuan/gold/cli.py ui
 ```
 
@@ -1650,14 +1720,14 @@ python src/main/python/com/sun/shensuan/gold/cli.py ui
 
 ### 19.6 备份与恢复
 
-- 每日备份：`data/raw`、`data/normalized`、`data/decisions`、`data/paper`、`config`、`logs`。
-- 保留 ≥2 年；账本长期。
+- 每日备份：`data/raw`、`data/normalized`、`data/decisions`、`data/paper`、`config`；**不含 `logs/`**（日志按 §15.7 只保留 7 天；如需审计，备份日志摘要/哈希）。
+- 上述数据与配置保留 ≥2 年；账本长期。
 - 每季度恢复演练：恢复到临时目录，校验 `fact_pack_hash`/账本链。
 - 备份加密；不含密钥；`data/live` 单独加密。
 
 ### 19.7 日志轮转
 
-- 按日轮转；保留 7 天；错误日志单独保留。
+- 按日轮转；在线日志与错误日志均保留 7 天；错误日志另建索引/摘要，原文不延长保留。
 - 不记录密钥、账号、个人财务明细。
 - LLM 原始输出单独存；日志只存摘要/哈希。
 
@@ -1700,7 +1770,7 @@ docker run --rm --network none -v "$PWD/data:/app/data:ro" gold-system:dev pytes
 4. `看板.md`、`CHANGELOG.md`。
 5. `git status`、`git diff`、`git log`。
 
-**不得**跳过 1–2 直接改代码；**不得**只看片段就下结论。
+**不得**跳过 1–2 直接改代码；涉及规则口径时还必须读 3；**不得**只看片段就下结论。
 
 ### 20.2 任务协议
 
@@ -1753,7 +1823,7 @@ docker run --rm --network none -v "$PWD/data:/app/data:ro" gold-system:dev pytes
 
 - 需求歧义、文档冲突、验收标准不可测。
 - 删除/覆盖用户数据、历史账本、配置。
-- 真实下单、券商凭证、账户信息。
+- 真实下单、券商账号/密码/令牌、账户信息。
 - `git push`、force push、amend 已发布提交、改 CI。
 - 修改风控阈值、仓位带、权重、预注册门槛。
 - 新增依赖/服务/数据库/云资源。
@@ -1787,7 +1857,6 @@ docker run --rm --network none -v "$PWD/data:/app/data:ro" gold-system:dev pytes
 - 只改任务范围内文件；不碰 README/PROJECT/他人未提交内容。
 - 需要改别人正在改的文件→停手，报冲突。
 - 不覆盖/删除未知来源文件；先读、先备份。
-- 临时文件放 `temp/` 或系统临时目录；任务结束清理自己的。
 - 不把生产数据复制到仓库根目录。
 - 不用“格式化整个文件”制造大 diff。
 
@@ -1796,6 +1865,7 @@ docker run --rm --network none -v "$PWD/data:/app/data:ro" gold-system:dev pytes
 | 项 | 规则 |
 |---|---|
 | 运行环境 | `~/miniconda3/envs/rdagent`；conda 路径可配置 |
+| 模型 | 默认 `qwen3.5:9b`；备选 `qwen3.5:4b`/`qwen2.5:7b`/`deepseek-r1:8b`；记录模型 digest；单实例 |
 | 沙箱 | Docker 容器；无网络/无券商/无真实账户 |
 | 产出 | 因子假设、表达式、沙箱回测结果；写入隔离目录 |
 | 输入 | 只读行情/特征；不得读 `data/live`、密钥、个人数据 |
@@ -1924,7 +1994,7 @@ docker run --rm --network none -v "$PWD/data:/app/data:ro" gold-system:dev pytes
 - 16GB 内存/2GB 显存；LLM 与 RD-Agent 不能并发。
 - 磁盘/备份/断电/进程中断；账本重放与恢复演练。
 - 模型 digest 升级流程未定；升级必须重跑测试与 shadow。
-- 日志轮转/备份保留/加密策略待定。
+- 日志轮转已定：在线日志 7 天（§15.7）；备份保留：数据/配置 ≥2 年、日志不进 2 年备份（§19.6）；加密策略待定。
 
 ### 21.7 地缘政治专项
 
@@ -2127,7 +2197,7 @@ docker run --rm --network none -v "$PWD/data:/app/data:ro" gold-system:dev pytes
 
 **每日开盘前：**
 
-- [ ] 预检：内存 ≥9.5GB、磁盘、锁、配置哈希。
+- [ ] 预检：关闭无关应用后 `MemAvailable ≥ LLM_MIN_FREE_GB`、磁盘、锁、配置哈希。
 - [ ] 数据质量：GREEN/YELLOW/RED；缺口可见。
 - [ ] 事实包哈希已写；`available_at <= cutoff`。
 - [ ] 确定性 `[L,H]`、`T_det` 已出。

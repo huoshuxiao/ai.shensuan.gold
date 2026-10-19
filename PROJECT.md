@@ -3,7 +3,7 @@
 ```markdown
 ai.shensuan.gold.git/
 ├── config/       # 全局配置
-├── docs/         # 文档目录
+├── docs/         # 文档目录(不参与程序设计)
 ├── data/         # 数据存放目录
 ├── logs/         # 日志目录
 ├── src/          # 代码目录
