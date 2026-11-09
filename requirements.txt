@@ -1,0 +1,11 @@
+# 项目唯一依赖清单（README 第 2 条）。版本按 2026-10-19 本机实测固定。
+# 安装：/usr/bin/python3.10 -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+akshare==1.18.81
+numpy==1.26.4
+pandas==2.2.0
+pydantic==2.13.5
+PyYAML==5.3.1
+requests==2.34.2
+xlrd==2.0.2
+pytest==8.3.3
+streamlit==1.64.0

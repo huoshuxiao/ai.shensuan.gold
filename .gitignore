@@ -218,3 +218,21 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# 黄金项目：数据层与运行产物（手工 CSV 模板仍入库）
+data/raw/
+data/normalized/
+data/decisions/
+data/paper/
+data/live/
+logs/
+
+.idea/
+
+data/
+
+src/main/python/com/sun/shensuan/gold/common/__init__.py
+
+src/main/python/com/sun/shensuan/gold/acceptance/__init__.py
+
+src/main/python/com/sun/shensuan/gold/__init__.py

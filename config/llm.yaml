@@ -1,0 +1,39 @@
+# LLM 委员会配置：P5 起生效；P1 只加载、校验、计入 config_hash，不启动模型。
+# 规则依据：AGENTS.md §11（9 角色、两轮辩论、引用审计）、§15.10（单机单实例）。
+# 密钥只从 .env 读取，不写入本文件或日志（§15.9、§20.12）。
+schema_version: "1"                # 配置结构版本；schema 变更时递增
+
+provider: ollama                   # 仅本地 Ollama；v1 不使用云端/网页模型
+base_url: "http://localhost:11434" # 本机回环；不对公网暴露
+model: deepseek-r1:8b                  # 主模型；备选见 models
+models:                            # 允许切换的本地模型；同一时刻只起一个
+  - qwen3.5:9b
+  - qwen3.5:4b
+  - qwen2.5:7b
+  - deepseek-r1:8b
+think: false                       # 必须关闭；否则可能长时间无正文（§11.3）
+temperature: 0.1                   # 降低随机性，但不承诺逐位复现
+num_ctx: 8192                      # 上下文窗口；事实包 + 提示词 + 输出必须放下
+num_gpu: 0                         # 2GB 显存不足；强制 CPU 推理
+num_thread: 4                      # 与 i7-6700HQ 匹配，避免打满
+keep_alive: 45m                    # 模型驻留时长；冷启动可能十余分钟
+timeout_round1_s: 50               # 第 1 轮单角色超时，单位：秒
+timeout_round2_s: 45               # 第 2 轮单角色超时，单位：秒
+total_budget_min: 12               # 委员会总预算，单位：分钟；07:17 硬截止
+concurrency: 1                     # 单机只允许一个本地 LLM 实例
+
+# 运行模式：influence / shadow / off（§11.10）。
+# P1–P4 必须 shadow；8–12 周评估并由用户签字后才可切 influence。
+mode: shadow
+
+# 9 个角色；顺序即第 1 轮发言顺序，数量不得随意增减（§11.1）。
+roles:
+  - macro_rates                    # 宏观利率
+  - geopolitics                    # 地缘政治/避险
+  - cross_market                   # 跨市场价差
+  - flows                          # 流量/持仓
+  - technical                      # 技术/状态
+  - bull_researcher                # 多方研究员
+  - bear_researcher                # 空方研究员
+  - risk_manager                   # 风控经理（可否决到 0）
+  - portfolio_manager              # 组合经理（在 [L,H] 内定稿）

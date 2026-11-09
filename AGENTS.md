@@ -1,7 +1,7 @@
 # AGENTS.md
 
-> **状态：设计蓝图 v0.1（2026-10-19）。仓库尚无实现代码。**
-> 本文件描述目标系统、判据口径与 Agent 行为规范，**不代表任何功能已经实现、测试已经通过或策略已经盈利**。
+> **状态：设计蓝图 v1.1（2026-10-25）。P1 数据层已实现并通过离线测试；程序化验收判 `verdict=PASS`（139 PASS / 0 FAIL / 19 SKIPPED，158 条判据 / 14 项）；新增数据问题自动识别与能力封锁（§6.9，`cli.py doctor`，实测 `overall=NEEDS_HUMAN`：2 自动消解 / 9 已封锁 / 1 待人工复核），等待用户签收；P2 及之后阶段未开始。**
+> 本文件描述目标系统、判据口径与 Agent 行为规范，**不代表策略已经回测、LLM 委员会已经运行或策略已经盈利**；已实现范围与证据见 `看板.md` 与 `CHANGELOG.md`。
 > 适用范围：在本仓库工作的编码 Agent、研究 Agent、LLM 委员会、RD-Agent 与人工操作者。
 > 本文件不构成投资建议；系统不接券商、不自动下单、不保存券商账号/密码/令牌；交易数据由人工录入。
 
@@ -43,7 +43,7 @@
 - 本文件与 README/PROJECT 的事实性冲突（例如数据源口径、目录结构）必须显式记录，不得静默改写 README/PROJECT；以本文件的实测值为准，并在交付说明中标注差异。
 - 发现规则自相矛盾时，先停手，指出冲突条款与建议口径；不得自行选择更宽松的一侧。
 
-### 0.4 Agent 快速契约（16 条）
+### 0.4 Agent 快速契约（19 条）
 
 1. **只做辅助**：产出研究、决策卡、纸面台账与人工下单清单；**禁止**接券商 API、自动下单、保存券商账号/密码/令牌。
 2. **数字有源**：所有进入决策的数字必须来自数据层或确定性计算；缺失标 `MISSING/DEGRADED`，**禁止**填 0、插值冒充真实值或让 LLM 猜。
@@ -61,6 +61,9 @@
 14. **时间纪律**：07:00 冻结事实包，07:35 出决策卡，08:00 人工复核，09:30–14:30 人工执行；系统不阻塞、不代替人工。
 15. **本文件是行为单一事实源**：Qoder、opencode、脚本与人工操作都按本文件执行；其他说明只能是它的指针或补充，不得复制出第二套互相矛盾的规则。
 16. **原型先行**：非正式代码（原型、探针、一次性分析脚本、RD-Agent 候选实现）必须先放 `src/test/python/com/sun/shensuan/gold/experimental/` 验证，测试退出码 0 后才迁入 `src/main/...`；`main` 禁止导入 test 树；迁移后不得留下两份。
+17. **注释齐全**：所有 Python 文件（`__init__.py` 除外）必须有模块 docstring；每个类、函数、方法必须有中文 docstring，写清用途、输入、输出、单位与失败行为。`config/` 下四份 YAML 必须有文件头、顶层分节与关键字段注释，改值同批改注释。`__init__.py` 不要求 docstring，但也不得写业务逻辑。
+18. **结构同批回写**：新增、移动、删除、重命名任何 Python 文件或目录时，必须在同一批改动中更新 `PROJECT.md` 的目录树与“Python 文件作用”表；未回写视为任务未完成。`PROJECT.md` 是当前结构的索引，`AGENTS.md` 只写规则与口径。
+19. **测试分层**：测试文件必须放在 `src/test/python/com/sun/shensuan/gold/{unit,contract,integration,architecture}/` 的对应子目录；测试根目录禁止平铺 `test_*.py`（`conftest.py` 与 `fixtures/` 除外）。新增测试必须归入既有层，不新建平行体系。
 
 ### 0.5 证据格式（所有 Agent 交付必须使用）
 
@@ -80,7 +83,7 @@
 
 ### 0.6 本文件维护
 
-- 版本号：`v0.1` 为设计蓝图；P0 完成仍为 `v0.1`；实现落地后按 P1–P8 递增。
+- 版本号：`v0.1` 为设计蓝图；`v0.2` 对应 P1 数据层实现完成（2026-10-21，待用户验收）；`v0.3` 新增逆向格言的多指标高低点统计要求（2026-10-21）；`v0.4` 新增阶段验收标准与非专业四问（2026-10-23）；`v0.5` 统一日期格式并把工作日缺口列入覆盖首屏（2026-10-23）；`v0.6` 新增汇率同日兜底条款与 `same_day_0915` 可见规则（2026-10-23）；`v0.7` 新增 §18.6 P1 数据验收程序化——`cli.py accept --stage P1` 的 13 条判据、退出码口径与验收卡写法（2026-10-23）；`v0.8` 接入上交所交易日历（§6.4 参考层、§6.6 缺口分母口径、`cli.py calendar`），N1 分母改为按数据集 `calendar` 声明取官方交易日或工作日近似（2026-10-23）；`v0.9` 事件日历第二来源＝快讯确定性抽取（§6.2 补、`data/news_events.py`、`cli.py extract-events`、`strategy.yaml` 的 `geo.news_events`），§18.6 判据由 13 条增至 14 条（新增 Q3 同版本闸），并按实跑抓出的三处尺子缺陷收紧 C3/C5/N1–N3 口径（2026-10-23）；`v1.0` 用户裁定三条数据口径（均为“乙”：`drop_all_zero_rows`、`positive_columns`、`LOW_COVERAGE` 披露），新增“剔除即从主表移除”“完整快照整表替换”“复核排除表”，N1 增加「已披露才放行」一格、P1 程序化验收转为 PASS（2026-10-24）；`v1.1` 新增 §6.9 数据问题自动识别与安全处置（`data/remediation.py`、`cli.py doctor`、`_remediation.json` 能力清单与复核队列），明确只隔离/降能力/标注/阻断晋升，不补值不猜 severity（2026-10-25）；之后按 P2–P8 落地逐级递增。
 - 任何判据、阈值、角色数、数据源、仓位区间变化，必须同批更新：本文件、`CHANGELOG.md`、`看板.md`、相关配置模板与测试。
 - 本文件为**追加优先**：已提交正文不删改；如需作废，追加新条款并注明作废对象。未提交阶段可就地修正，但要在交付说明中写“已就地改掉、无旧句可作废”。
 - 计数词（角色数、来源数、阶段数、验收条数）必须与正文一致；修改计数时同批扫掉派生说法。
@@ -156,12 +159,14 @@
 |---|---|---|
 | 1 | 确定性内核 + LLM 带内选择 | 规则先算 `[L,H]` 与 `T_det`；委员会选 `T_committee`；`T_final = clamp(T_PM, L, H)`；风控否决→0 |
 | 2 | 事实包 + 引用审计 | 每个 `fact_id` 有来源、`as_of`、公式、缺失策略；LLM 数字必须引用且值在容差内，否则整条观点作废 |
-| 3 | 逆向格言可证伪 | “别人贪婪时恐惧”全量展示；变成加仓动作必须先过预注册样本外门槛；未通过只允许减仓 |
+| 3 | 逆向格言可证伪、数据说话 | “别人贪婪时恐惧，别人恐惧时贪婪”两半都展示；用两个或更多独立指标的高低点交叉/重叠统计买入低点/卖出高点命中率与盈亏概率（§8.4.2）；变成加仓动作必须先过预注册样本外门槛；未通过只允许减仓 |
 | 4 | ETF 优先、只做多、无杠杆 | 默认 518880/159934，100 份整手；期货只研究；不做空、不加杠杆 |
 | 5 | 金边组合口径 | 仓位建议是“用户自定 gold sleeve 的百分比”，不是总资产百分比；系统不知道用户总财富与税况，必须在卡片写明 |
 | 6 | 数据缺口显性化 | TIPS、DXY、官方 AU 指数、GLD/IAU、新闻无源时显示 `DEGRADED/MISSING`；禁止 0 或 LLM 猜测 |
 | 7 | 自动提交只服务开发任务 | 任务 `DONE` 且闸门通过才 commit；每日决策产物按周归档；任何情况下不 push |
 | 8 | 地缘政治三分层、可证伪 | GPR 定量层 + 事件严重度层 + 市场确认层；新闻原文 v1 不进 LLM；先预注册后样本外；“战争→买金”不得写成硬规则 |
+
+> **决定 3 的引文与统计口径（2026-10-21）**：README 原句是“别人贪婪时恐惧，别人恐惧时贪婪”。上表现已写全两半；§8.4.1 把两半分别落到降险与逆向加仓；§8.4.2 规定“两个或更多独立指标高低点交叉/重叠”的统计验证与数据口径。任何“逆向加仓”仍须先过 §12.7 的晋升门槛。
 
 ### 2.3 权限矩阵
 
@@ -323,7 +328,7 @@ preflight
 |---|---|---|---|---|
 | 沪金主力连续 | `AU0` / `ak.futures_main_sina` | 国内期货研究基准 | 否 | **非官方 AU 指数**；换月跳空；仅研究展示 |
 | 上海金现货 | `Au99.99` / `ak.spot_hist_sge` | 人民币金价基准 | 否 | CNY/g；现货定盘参考 |
-| COMEX 黄金 | `GC` / `ak.futures_foreign_hist` | 美元金价基准 | 否 | 末行 volume/position=0，标 degraded；只当收盘价 |
+| COMEX 黄金 | `GC` / `ak.futures_foreign_hist` | 美元金价基准 | 否 | 2026-10-19 原始快照全部行 volume/open_interest=0，标 degraded；只当收盘价 |
 | 黄金 ETF | `518880` | 主交易标的 | 是 | 100 份整手；T+0；费用按券商实际 |
 | 黄金 ETF | `159934` | 备用标的 | 是（备选） | 流动性与跟踪误差需 P1 实测 |
 | 境外黄金 ETF | `GLD/IAU` | 可选研究/手工导入 | 否 | 无稳定直连时标 MISSING |
@@ -334,7 +339,9 @@ preflight
 - 黄金：`1 troy ounce = 31.1034768 g`。
 - 国内现货/期货：`CNY/g`；COMEX：`USD/oz`。
 - 跨市场换算必须同时带：`USD/CNY`、单位换算、时区、日期；缺一不可。
-- `USD/CNY` 的 BOC 接口返回“每 100 外币”的人民币价，**必须除以 100**；固定使用央行中间价或中行折算价之一，不得混用。
+- `USD/CNY` 的 BOC 接口返回“每 100 外币”的人民币价，**必须除以 100**；同日固定使用央行中间价或中行折算价之一，不得混用；跨日的按日兜底切换见下一条同日兜底条款。
+- P1 提供两条独立汇率序列：`usdcny`（BOC 中行折算价，2021-10 起）与 `usdcny_mid`（SAFE 人民币中间价，1994 起）。同一条特征每次只能选一条；事实包必须写明 `source`，禁止把两条拼成一条。
+- **同日兜底条款（2026-10-23，T-023）**：某一天取汇率时，折算价最终值可用（`same_day_1800` 已过、行 `quality=GREEN`、无 `PROVISIONAL`）就用折算价；不可用（缺失、`PROVISIONAL`、接口失败）就用中间价兜底（`same_day_0915` 后当日可见，观察中）；两条都不可用标 `MISSING`。同日绝不把两条平均或拼接；事实包必须记录当天实际使用的 `source`。同日两条都可用（GREEN）时计算相对差异 |折算价−中间价|/中间价，超过 0.05% 标 `DEGRADED` 并在决策卡披露；盘中临时值（`PROVISIONAL`）不参与差异比较。唯一选择入口是 `data/rates.py` 的 `select_usdcny`，P2 事实包只从这里取汇率。
 - 所有百分比统一写成 `xx%`；pp 表示百分点；金额写币种。
 - 时区：存储用 UTC 或带时区 ISO-8601；展示用 `Asia/Shanghai`；交易日历单独维护。
 
@@ -375,15 +382,16 @@ preflight
 | 沪金主力连续 `AU0` | `ak.futures_main_sina("AU0", start, end)` | 2026-01-01 起 188 行，至 2026-10-16 | **非官方 AU 指数**；全历史长度待 P1 实测；换月跳空 |
 | 上海金 `Au99.99` | `ak.spot_hist_sge("Au99.99")` | 2,382 行 | CNY/g；现货基准 |
 | SGE 报告 | `ak.macro_china_au_report()` | 38,267 行 | 含 Au(T+D)/Ag(T+D)、成交量、持仓量 |
-| COMEX `GC` | `ak.futures_foreign_hist("GC")` | 2,588 行 | 最后一行 volume/position=0；实时持仓量也为 0；只当收盘价，标 `DEGRADED` |
+| COMEX `GC` | `ak.futures_foreign_hist("GC")` | 原始快照 2,589 行（2026-10-19）；volume 与 open_interest 全 2,589 行为 0 | 全部行零持仓，不能当真实流动性；实时持仓量也为 0；只当收盘价，标 `DEGRADED` |
 | `518880` | `ak.fund_etf_hist_sina("sh518880")` | 3,212 行 | 主代理；开/高/低/收/量/额 |
 | `159934` | `ak.fund_etf_hist_sina("sz159934")` | 3,119 行 | 备用 ETF |
 | CFTC 黄金持仓 | `ak.macro_usa_cftc_c_holding()` / `macro_usa_cftc_merchant_goods_holding()` | 周频至 2026-10-13 | 非商业=投机、商业=套保；按发布日做 PIT |
 | SPDR 黄金 ETF 持仓 | `ak.macro_cons_gold()` | 日频至 2026-10-16 | 总库存（吨）/增减/总价值；流量指标 |
 | 美债 10Y 名义 | `ak.bond_zh_us_rate(start_date)` | 至 2026-10-16 | **无 TIPS 实际利率**；需手工 CSV 或代理 |
 | `USD/CNY` | `ak.currency_boc_sina("美元", start, end)` | 至 2026-10-17 | 每 100 外币价，必须 /100；固定中间价或折算价 |
+| 人民币汇率中间价 | `ak.currency_boc_safe()` | 8,068 行，1994-01-01 至 2026-10-20（2026-10-21 探针） | SAFE 中间价；每 100 外币价必须 /100；与 BOC 折算价是两套报价，禁止拼接混用 |
 | `DXY` | 无直接可用接口（东财不稳定） | — | 用 BOC 六币种交叉汇率按 ICE 公式构造代理，标 `PROXY` |
-| WTI 原油 | `ak.futures_foreign_hist("CL")` / `futures_foreign_commodity_realtime("CL")` | 7,688 行至 2026-10-16；末行 volume/position=0；实时持仓=0 | 只当地缘风险确认与收盘价；标 `DEGRADED` |
+| WTI 原油 | `ak.futures_foreign_hist("CL")` / `futures_foreign_commodity_realtime("CL")` | 原始快照 7,689 行至 2026-10-16（2026-10-19 抓取）；volume 与 open_interest 全 7,689 行为 0；实时持仓=0 | 全部行零持仓，不能当真实流动性；只当地缘风险确认与收盘价；标 `DEGRADED` |
 | 黄金已实现波动 | 由 `GC/AU0/518880` 收盘价计算 | — | 不依赖 VIX；作为“冲击是否已被定价”的确认量 |
 
 > 东财系接口在本机多次连接失败；Sina/SGE/BOC 可用。设计必须按“主源 + 降级 + 手工导入”三层处理，禁止把缺失值静默填 0。
@@ -408,6 +416,15 @@ preflight
 
 三层都进入事实包，但**不默认“地缘冲突=金价上涨”**。`geo_score` 的权重、z 窗口、阈值全部进 `strategy.yaml`，代码不写魔法数。
 
+**事件日历的第二个来源（2026-10-23 补，T-030）**：除人工维护的 `data/manual/geo_events.csv` 外，事件行还可以由 `data/news_events.py` 从**已入库快讯标题**做确定性关键词抽取产出（规则表在 `strategy.yaml` 的 `geo.news_events`，含 `rules_version`、`min_title_chars`、`dedupe_window_days`、`regions`、`rules`）。边界与代价：
+
+- 只读 `news_cls/news_sina/news_shmet` 的规范化标题，不读正文、不联网、不调用 LLM；不新增任何外部源。
+- 可回补的窗口只有快讯表里已有的天数（2026-10-23 23:42 现读，取 `extract-events` dry-run 的 `news_rows_read` 字段：SHMET 2,134 条，覆盖 `2026-07-30..2026-10-23` 共 86 天；CLS 121 条 + Sina 162 条，各覆盖 `2026-10-19..2026-10-23` 共 5 天）；**快讯接口不给历史**，5 年事件史仍然无法回补（R-005 不变）。
+- `source_url` 写「接口名#内容哈希」而不是 URL：快讯接口不返回原文链接，禁止为了凑字段伪造地址；复核时按哈希在本地新闻表里定位原始标题。
+- severity 由关键词表自动赋值，**未经人工复核不得作为加仓依据**（§6.2、§8.5）；抽出的行仍带 `MANUAL` 标记（§7.4：披露而非降级）。
+- 抽取行以 `XGE-` 前缀 + `rules_version` 进入 `event_id`；改关键词必须同批递增版本并重跑历史抽取对表；重跑只替换 `XGE-` 前缀行，人工登记行原样保留。
+- 默认 `dry-run`（`cli.py extract-events`），只有显式 `--write` 才落盘。已知误报形状：行情修辞「爆炸性上涨」已由 `excludes` 抵消；公司报道里转述社会事件（如「家乐福下调目标 上周末法国发生严重骚乱」）仍会被抽出，属人工复核范围，不得由 Agent 自行加规则去「修噪音」。
+
 ### 6.3 手工导入层
 
 `data/manual/*.csv` 用于以下无稳定直连的数据：
@@ -426,8 +443,9 @@ preflight
 | 层 | 路径（计划） | 规则 |
 |---|---|---|
 | 原始层 | `data/raw/<source>/<date>/` | append-only；保存原始响应/文件 + `fetched_at` + URL + 状态码；不得覆盖 |
-| 规范化层 | `data/normalized/<dataset>.csv` | 统一列名、单位、时区、排序；幂等重写；带 `source/as_of/available_at` |
+| 规范化层 | `data/normalized/<dataset>.csv` | 统一列名、单位、时区、排序；price/series/events 的 `date` 与 `as_of` 一律 `YYYY-MM-DD`（news 的 `published_at` 保留带时区 ISO-8601）；幂等重写；带 `source/as_of/available_at` |
 | 手工层 | `data/manual/*.csv` | 人工维护；必须带来源与时间戳；变更留痕 |
+| 参考层 | `data/reference/*.csv` + 同名 `.meta.json` | 非行情、非决策的参考数据（当前是上交所交易日历）；meta 记录 `source/source_url/fetched_at/as_of_max/rows/sha256`；正文与校验和不符时视为不可用，判据回落工作日近似并披露原因；只增不改，重抓写新文件 |
 | 决策层 | `data/decisions/YYYY-MM-DD/` | 事实包、规则 trace、决策卡、委员会输出、哈希 |
 | 纸面层 | `data/paper/ledger.jsonl` | append-only 哈希链 |
 | 实盘记录 | `data/live/actual_fills.csv` | **gitignored**；只在本地 |
@@ -448,6 +466,10 @@ preflight
 
 事实包只接受 `available_at <= cutoff` 的记录；`cutoff` 为交易日 07:00 `Asia/Shanghai`。
 
+`PROVISIONAL` 是行级临时标记：`fetched_at < available_at` 表示抓取发生在数据可见时点之前（如美股盘中抓 COMEX/WTI、18:00 前抓 BOC 折算价）。这类行必须保持 `quality=DEGRADED`，并在事实包过滤时剔除；必须等 `available_at` 后的重抓快照才能转为正式读数。
+
+**行级 `quality` 与数据集 `status` 的口径（2026-10-23 补）**：上面表格 `quality` 行的 `GREEN/YELLOW/RED` 按**数据集级质量**（`DatasetQuality.status`）理解；规范化表的**行级** `quality` 列实际只有 `GREEN`/`DEGRADED` 两值：无行级标记为 `GREEN`，任一 `ZERO_*`/`MISSING_*`/`REVISED_ONLY`/`PROVISIONAL` 标记为 `DEGRADED`。行级 `DEGRADED` 必须能由同一行的 `flags` 复现，不能被当作数据集三档的第三值；事实包/UI 读行级时按两值处理，读数据集质量时按三档处理。上面表格的 `quality` 行以本段为准。
+
 ### 6.6 质量闸
 
 | 检查 | 触发 | 处理 |
@@ -456,6 +478,8 @@ preflight
 | 缺失交易日 | 与交易日历比对 | 标 `MISSING`；核心序列缺失→`DEGRADED` |
 | 零成交量/零持仓 | volume/position=0 | 标 `DEGRADED`；不得当真实流动性 |
 | 过期 | 超过源阈值（如日频 T+2） | 标 `STALE`；核心序列→`DEGRADED` |
+| 工作日缺口 | 与周一至周五比较；暂无交易日历 | `coverage` 输出 `continuity`（缺口数、覆盖率、样例）；日频源覆盖率 <80% 给 warning；warning 不直接改 RED，但必须第一屏可见；周频源按 40–60 行/年识别，不误报 |
+| 抓取早于可见时点 | `fetched_at < available_at` | 行标 `PROVISIONAL`、`quality=DEGRADED`；数据集 YELLOW；不得进入事实包 |
 | 单位异常 | 价格量级/单位不符 | 标 `RED`；停止使用该源 |
 | 时区错位 | 日期/时间不在预期交易时段 | 标 `RED`；人工复核 |
 | OHLC 不一致 | `low > min(open,close)` 或 `high < max(open,close)` | 标 `RED`；该行剔除 |
@@ -474,6 +498,21 @@ preflight
 - `YELLOW`：非核心字段缺失/代理/轻微过期；允许 LLM，但决策卡必须显示。
 - `RED`：核心序列缺失/单位异常/账本断链/配置哈希不符；**禁止加仓**，只允许减仓或空仓建议。
 
+**质量报告范围（2026-10-23 补）**：`ingest --datasets` 是子集运行，必须与上一份 `_quality.json` 合并：报告标 `scope=subset`、`refreshed`（本次刷新）、`inherited`（保留的旧报告数据集）；`global_status/missing/degraded/red/core_not_green` 按合并后的数据集重算。只有覆盖全部 `enabled` 数据集的运行才写 `scope=full`。禁止把子集运行的结果冒充全量质量报告；没有旧报告时仍写子集报告，但必须显式标 `scope=subset`。
+
+**近期坏行窗口（2026-10-23 补）**：质量闸的“最近”= 尾部 5 个有效行里最早 `as_of` 起、到 `as_of_max`（含）为止的日期区间，外加晚于 `as_of_max` 的剔除行。被剔除的日期只要落在该区间内就算近期坏点（如 WTI 2026-10-22 夹在 10-21 与 10-23 之间），不得只按有效行日期集合判定而漏成历史。数据集判 RED 时，链路 `quality_gate` 节点必须同为 `DEGRADED`（`error_code=DATASET_RED`），与 `_quality.json` 的 `global_status` 同口径；非核心数据集 RED 也不得显示 `OK`。
+
+**缺口分母口径（2026-10-23 补，作废上表“工作日缺口”行的“暂无交易日历”前提）**：缺口分母按数据集声明的 `calendar` 口径取。`cn_sse`（境内 ETF/SGE/AU0）用上交所官方交易日日历（`data/reference/trade_calendar_cn_sse.csv`，来源 `akshare.tool_trade_date_hist_sina`），节假日不再算缺口；外汇报价日与美国交易日没有可直连的官方日历，留在 `weekday`（周一至周五近似），读数与 `continuity` 必须写出实际用的口径标签（如 `cn_sse(8797 日, …)` 或 `weekday_approx(cn_sse 日历未落盘)`），不得把近似冒充官方。日历未落盘、被改写导致 sha256 不符、或内容为空时，一律回落近似并披露原因；空日历禁止落盘。本条只改分母，不改 §6.6 上表的判红动作与 `stale_days` 口径。
+
+**源缺值被写成 0 的两种整行剔除（2026-10-24 补，用户裁定“乙”）**：上表「负值/零价」行只管 `open/high/low/close`；另有两条按配置显式声明的剔除规则，**都是整行剔除并留档，不猜值**：
+
+- `drop_all_zero_rows`（默认关闭）：series 数据集的**全部必需数值列同时为 0** 时按 `ALL_ZERO_IN_REQUIRED` 剔除。只对需要它的数据集开启（当前只有 `cftc_gold`：多空净仓全 0 = 源没给这一周的值）。**不得全局强推**——GPR 的 `gprd=0` 是真实的平静日（本库实测 2 行），全局开会把真实读数删掉。
+- `positive_columns`（默认空）：声明为必须为正的列出现 ≤0 时按 `NONPOSITIVE_<COL>` 剔除（当前只有 `shfe_au0.settlement`，618 行）。缺值仍走 `NAN_IN_REQUIRED`，两条原因分开，能分辨「源给 0」与「源给空」。
+
+配套两条口径：①**剔除即从主表移除**——规范化层默认是「只增不删」的并集，被剔除的主键若不显式删除，会从旧行里原样复活（C6/C7 永久判红）；②`authoritative_snapshot: true` 的数据集（当前只有 `geo_events`）按**整表替换**处理：事件日历每次整份重写，历史完整性由源文件负责，规范化层不做并集。
+
+**覆盖率低于下限的披露口径（2026-10-24 补，用户裁定 D4 乙）**：日频 price/series 源的覆盖率低于 `acceptance.min_weekday_coverage` 时，数据集标 `LOW_COVERAGE` 并降为 YELLOW（`normalize.cadence_of` 判定周频，周频源不参与）；验收判据 N1 只在质量报告**已按同一标记披露且 quality 非 GREEN** 时不再判红，读数写明「已披露」，其余情况仍判 FAIL——这条豁免只认覆盖率这一件事，标黄原因若是 `STALE` 等别的原因借不到。首例是 `spdr_gold`（全历史 50.5%、近 5 年 68.0%）：P2 的 `FLOW_SPDR_CHG_*` 只能展示、不得进综合分数。
+
 ### 6.7 降级顺序
 
 1. 主源失败 → 重试 2 次（指数退避）。
@@ -488,6 +527,132 @@ preflight
 - `data/live/` 只存本地，`.gitignore` 排除。
 - 数据许可/交易所条款未确认前，不对外分发原始数据；报告只引用必要摘要。
 - 备份加密可选；备份文件不得进 git。
+
+### 6.9 数据问题自动识别与安全处置（`doctor` / `_remediation.json`，2026-10-25 补）
+
+> 用户裁定（2026-10-25）：已知数据问题要能**自动识别、自动处置**，并有程序化验证。
+> 本节的“自动处置”只包括四件事：**隔离坏行、收紧消费能力、标注口径、阻断晋升**。
+> **不包括**修源、补值、插值、猜 severity、把 `RED` 洗成 `GREEN`；做不到的必须显式标
+> `NEEDS_HUMAN`，不得用默认值或“看起来正常”填平（§2.1-4/5、§6.5、§7.4、§12.8）。
+
+**入口与产物**
+
+```text
+命令：/usr/bin/python3.10 src/main/python/com/sun/shensuan/gold/cli.py doctor [--write]
+退出码：0 = overall ∈ {CLEAN, AUTO_CONTAINED}；1 = NEEDS_HUMAN 或 ERROR；
+        2 = `_quality.json` 不存在（没有可诊断的数据）
+产物：data/normalized/_remediation.json（问题清单 + 每数据集能力清单 + 复核队列）
+实现：data/remediation.py；纯读取 + 确定性计算，不联网、不改数据
+```
+
+- `ingest` 在写完 `_quality.json` 前自动生成同一份诊断，并把摘要写进
+  `_quality.json` 的 `remediation` 节点；诊断自身抛错时摘要记
+  `overall=ERROR` + `errors`，**不打死日链**，但下游看到 `ERROR` 必须停手。
+- `coverage` 若发现 `_remediation.json`，在输出中附带同一份 `remediation` 摘要；
+  没有该文件时不伪造摘要。
+- `_remediation.json` 用原子写；`report_hash` 是**内容哈希**，不含 `generated_at`，
+  同一份质量报告在同一能力状态下跨次运行哈希一致，便于对表；`generated_at`
+  只表示本次生成时刻。
+
+**三种处置状态**
+
+| 状态 | 含义 | 允许的自动动作 |
+|---|---|---|
+| `AUTO_RESOLVED` | 坏行已留档/逐行标记，且不需要封锁整个字段 | 保持主表与留档现状，下游按行级 `DEGRADED` 处理 |
+| `CONTAINED` | 源缺陷无法消除，但已用能力清单阻断其进入分数/晋升 | 隔离、降能力、标注口径、要求重抓；**不修源** |
+| `NEEDS_HUMAN` | 没有安全的自动动作，继续自动处理等于编数或猜判断 | 只写问题、证据、下一步；能力按规则收紧 |
+
+**问题矩阵（`issue_id = <dataset>:<code>`，`*` 表示全局）**
+
+| code | 触发 | 状态 | 自动动作（`action`） | 能力影响 |
+|---|---|---|---|---|
+| `MISSING_CONFIG_HASH` / `STALE_QUALITY_REPORT` | 质量报告缺 `config_hash` 或与当前配置不等 | `NEEDS_HUMAN` | `RERUN_INGEST_AND_ACCEPT` | `global_block=true`，全部数据集 `display/feature/score/promotion=false` |
+| `SOURCE_FAILED` | 本次抓取 `status=FAILED` | `NEEDS_HUMAN` | `RESTORE_SOURCE` | 四项能力全关 |
+| `RECENT_BAD_ROWS` | 数据集 `quality=RED` 且近期剔除留档非空 | `CONTAINED` | `QUARANTINE_ROWS_AND_BLOCK_SCORING` | 可展示；`feature/score/promotion=false`；证据含 `clear_after_valid_rows` |
+| `RED_WITHOUT_ROW_EVIDENCE` | `quality=RED` 但找不到近期剔除留档 | `NEEDS_HUMAN` | `REVIEW_RECENT_BAD_ROWS` | 同上；不得假设“只是坏行” |
+| `ZERO_FLOW` | 成交量/持仓量全为 0，或 `zero_rows ≥ rows/2` | `CONTAINED` | `PRICE_ONLY_BLOCK_VOLUME_FIELDS` | `price_only=true`；`blocked_fields=[open_interest,volume]`；`promotion=false`；允许收盘价类特征 |
+| `HISTORICAL_ZERO_FLOW` | 只有少量历史零值（未达系统性阈值） | `AUTO_RESOLVED` | `KEEP_ROWS_AND_MARK_DEGRADED` | 不封字段；逐行 `DEGRADED` 已留档 |
+| `LOW_COVERAGE` | 质量报告带 `LOW_COVERAGE` | `CONTAINED` | `DISPLAY_ONLY_BLOCK_FEATURES` | 可展示；`feature/score/promotion=false`；SPDR 额外封 `FLOW_SPDR_CHG_1W/4W` |
+| `REVISED_ONLY` | 数据集声明或带 `REVISED_ONLY` | `CONTAINED`（有原始快照）/ `NEEDS_HUMAN`（无快照） | `RESEARCH_ONLY_CAPTURE_DAILY_VINTAGE` / `ESTABLISH_VINTAGE_ARCHIVE` | `score/promotion=false`；`blocked_promotions=[H-GEO-1,H-GEO-2]`；证据写快照数与起止 |
+| `RECENT_MISSING_ROWS` / `STALE` | 近期有缺失行或已过期 | `CONTAINED` | `BLOCK_SCORE_UNTIL_FRESH` | `score/promotion=false`；不得填前值 |
+| `PROVISIONAL` | 主表仍有 `PROVISIONAL` 行 | `CONTAINED` | 到期后 `RERUN_INGEST_TO_FINALIZE`；未到期 `WAIT_UNTIL_AVAILABLE_AT` | `score/promotion=false`；事实包继续剔除 |
+| `CALENDAR_APPROX` | 数据集 `calendar=weekday`，无官方日历 | `CONTAINED` | `LABEL_APPROX_AND_TREAT_COVERAGE_AS_LOWER_BOUND` | `coverage_is_lower_bound=true`；读数必须带口径 |
+| `CALENDAR_MISSING` | 声明 `cn_sse` 但实际回落为近似 | `NEEDS_HUMAN` | `RESTORE_OFFICIAL_CALENDAR` | 受影响数据集 `score=false` |
+| `UNREVIEWED_EVENT_SEVERITY` | 手工事件表存在未复核的 `XGE-` 行 | `NEEDS_HUMAN` | `REVIEW_EVENT_SEVERITY` | `feature/score/promotion=false`；封 `GEO_EVENT_SEVERITY`；行进 `review_queue` |
+| `READ_ERROR` | 规范化表/剔除留档/手工事件表读不出来 | `NEEDS_HUMAN` | `FIX_NORMALIZED_FILE` | 四项能力全关；不得当作空表或干净数据 |
+| `UNKNOWN_DATASET` | 质量报告里的数据集不在当前配置 | `NEEDS_HUMAN` | `FIX_CONFIG_OR_REPORT` | 无法判断口径，不生成能力 |
+
+**能力清单与下游契约（`capabilities.<dataset>`）**
+
+| 字段 | 含义 | 下游必须怎么做 |
+|---|---|---|
+| `display_eligible` | 能否只读展示 | `false` 时不得进入任何 UI/报告数据面 |
+| `feature_eligible` | 能否进入特征计算 | `false` 时不得生成该数据集任何特征 |
+| `score_eligible` | 能否进入综合分数 | `false` 时只能展示，权重必须剔除并按剩余权重归一 |
+| `promotion_eligible` | 能否作为预注册/晋升证据 | `false` 时不得用于 H-GEO 或逆向加仓晋升 |
+| `price_only` | 只能当收盘价使用 | `true` 时只允许收盘价类特征，不得读成交量/持仓量 |
+| `blocked_fields` | 禁读字段名 | 任何特征、统计、UI 都不得读取 |
+| `blocked_features` | 禁入特征注册表的 `fact_id` | 注册表与事实包都不得包含 |
+| `blocked_promotions` | 禁用的晋升假设 | 预注册/回测报告不得引用 |
+| `calendar_basis` | 覆盖率分母口径 | 读数必须带该标签 |
+| `coverage_is_lower_bound` | 覆盖率是否只是保守下界 | `true` 时不得把“覆盖率低”解释成源一定缺数据，也不得把近似冒充官方 |
+| `reasons` | 触发原因码 | 审计、UI 与验收卡必须逐条可见 |
+
+`price_only=true` 时 `feature_eligible` 仍可为 `true`：允许的是收盘价类特征，`blocked_fields`
+里的字段仍然绝对禁读。能力清单只收紧、不放宽；下游不得用 `_quality.json`
+自己重算一套“能不能用”，必须读本清单。
+
+**P2 及之后的硬约束（规范）**
+
+1. 生成事实包前必须先读 `_remediation.json`；文件不存在、`global_block=true`、
+   `overall=ERROR` 或 `config_hash_match=false` 时，不得用该批数据生成事实包/分数。
+2. 任一数据集 `score_eligible=false` 时，其组权重按 §8.2 的缺失规则剔除并重新归一；
+   不得把被封锁的数据当成 0 参与加权。
+3. `display_eligible=false` 时，UI 与报告不得展示该数据集的具体读数，只能展示
+   “源失败/不可读”的原因。
+4. 人工复核事件后，只有在手工表新增 `severity_reviewed=1`（或 true/yes/是）才会
+   解锁 `GEO_EVENT_SEVERITY`；修改抽取规则不自动等于人工复核。
+
+**不变量与负向测试**
+
+- 任何规则都不得把缺失值写成 0/前值/均值，不得推断事件 severity、vintage 或官方日历。
+- `AUTO_RESOLVED` 不表示源缺陷消失；它只表示“这一批坏行已留档且不需要封锁整字段”。
+- `RED` 但找不到近期留档时必须 `NEEDS_HUMAN`，不得按“可能是坏行”自动封分数了事。
+- 零流量字段只在**系统性**缺陷时封锁；个别历史零行不得把整个数据集的成交量封死。
+- 无原始快照的 GPR 必须 `NEEDS_HUMAN`，不得从修订序列反推 vintage。
+- 配置哈希不符时全部能力关闭，防止旧数据配新判据。
+- 规范化表读坏时 `READ_ERROR` + 全关，不得吞异常返回空表。
+- 上述每条在 `unit/data/test_remediation.py` 都有放行/判红对照；`ingest` 自动落盘
+  与质量摘要一致性由 `integration/data/test_ingest_offline.py` 覆盖，`coverage`
+  附带摘要由 `integration/cli/test_cli.py` 覆盖。
+
+**现状读数（2026-10-25 23:28 CST 现跑）**
+
+```text
+cli.py doctor --write → DOCTOR_EXIT=1；overall=NEEDS_HUMAN
+counts={"AUTO_RESOLVED":2,"CONTAINED":9,"NEEDS_HUMAN":1}（12 条）
+blocked_datasets=[comex_gc,geo_events,gpr,spdr_gold,us10y,wti_cl]
+report_hash=sha256:37b88a942e7282f5c07f570e5e9e78dbff2543714fb92e675a7e80c3dfb4a86e
+唯一人工项：geo_events:UNREVIEWED_EVENT_SEVERITY（复核队列 4 条 XGE 事件）
+```
+
+逐项读数：
+
+- `wti_cl:RECENT_BAD_ROWS`：坏日 `2026-10-22`、原因 `OHLC_INVALID`、`clear_after_valid_rows=4`；数据集仍 `RED`，本次只是把坏行隔离并封分数，**没有把源修好**。
+- `comex_gc/wti_cl:PROVISIONAL`：各 1 行（`2026-10-23`），`available_at=2026-10-24T06:00:00+08:00` 已过，动作为 `RERUN_INGEST_TO_FINALIZE`；重抓前不得使用。
+- `comex_gc/wti_cl:ZERO_FLOW`：`zero_rows` 分别为 5,106/15,282，判为系统性零流量，`price_only=true`，成交量与持仓量禁读。
+- `etf_159934`/`shfe_au0:HISTORICAL_ZERO_FLOW`：零行分别为 4/5，`AUTO_RESOLVED`，不封字段。
+- `spdr_gold:LOW_COVERAGE`：`weekday_gaps=2829`，只展示，`FLOW_SPDR_CHG_1W/4W` 禁入分数。
+- `gpr:REVISED_ONLY`：17 份原始快照，`2026-10-19T23:43:55+08:00..2026-10-24T00:53:35+08:00`；历史段永久 `REVISED_ONLY`，H-GEO-1/2 禁晋升。
+- `us10y:RECENT_MISSING_ROWS`：`recent_missing_rows=1`、`stale_days=1`，恢复新鲜前封分数。
+- `*:CALENDAR_APPROX`：`cftc_gold/comex_gc/gpr/spdr_gold/us10y/usdcny/usdcny_mid/wti_cl` 仍按周一至周五近似，覆盖率只是保守下界；本条只标注，**不解决**官方日历缺失。
+- `geo_events:UNREVIEWED_EVENT_SEVERITY`：4 条 `XGE-` 事件待人工复核；复核前 `GEO_EVENT_SEVERITY` 禁入地缘分数与加仓依据。
+
+**边界（不得写成“已修复”）**
+
+- 本机制不改变源站缺陷：WTI/COMEX 零成交量与零持仓仍存在，GPR 历史仍无 vintage，SPDR 历史空洞仍在，美国/外汇官方日历仍未接入。
+- 本机制不补任何缺失值，不替用户复核事件 severity；`NEEDS_HUMAN` 项在用户处理前保持封锁。
+- `doctor` 不是 `accept` 的替代：`accept --stage P1` 仍按 §18.6 的 14 条判据判数据质量与一致性；`doctor` 只回答“已知缺陷如何安全处置”。两者都通过才表示“数据可用且消费边界明确”，都不证明策略有效或会盈利。
 
 ---
 
@@ -552,6 +717,7 @@ preflight
 | `DEGRADED` | 有数据但质量不足 | 参与展示，不参与加仓；风险闸可只减不加 |
 | `PROXY` | 代理指标 | 展示并披露构造；不单独触发加仓 |
 | `REVISED_ONLY` | 只有修订后历史，无 vintage | 只用于研究/展示；不得用于 H-GEO 晋升 |
+| `PROVISIONAL` | 抓取早于 `available_at` 的盘中快照 | 展示但不得进入事实包；等收盘后重抓转正 |
 | `MANUAL` | 手工导入 | 展示来源与录入时间；重要字段需人工复核 |
 | `STALE` | 过期 | 核心序列→`DEGRADED`；非核心→展示警告 |
 
@@ -589,6 +755,7 @@ preflight
 
 - 事实包不含新闻原文、账号、密钥、个人资产信息。
 - LLM 只能引用 `facts[].fact_id`；不得引用 `missing/degraded` 作为加仓依据。
+- 事实包过滤必须同时满足 `available_at <= cutoff` 与 `fetched_at >= available_at`；`PROVISIONAL` 行不得进入事实包（实现入口：`common.timeutil.filter_fact_pack`）。
 - 事实包生成后不可变；任何重算生成新哈希，旧包留档。
 
 ---
@@ -667,6 +834,74 @@ preflight
 4. 调整幅度 ≤ ±10pp；不得把卫星仓推过 `[L,H]` 之外（风险减仓除外）。
 
 **v1 默认只读/只减不加**：逆向叠加只允许“降低风险”的方向；任何“逆向加仓”必须先通过 §12.8 的预注册样本外门槛。未通过前，UI 只展示信号与历史表现，不给加仓动作。
+
+### 8.4.1 逆向格言的两半（对 §8.4 的补全，2026-10-21）
+
+README 的原句是“别人贪婪时恐惧，别人恐惧时贪婪”。§2.2 决定 3 已补全为两半；§8.4 标题仍只引前半句（历史标题，不改）；本小节把两半分别落到动作，**前半句不覆盖后半句，二者都有效**。两半的统计口径见 §8.4.2。
+
+| 格言半句 | 情绪读数 | v1 的处理 | 前置门槛 |
+|---|---|---|---|
+| 别人贪婪时恐惧 | 拥挤、超买、极端流入等“贪婪”极值 | 降险：减仓、不做多、降低卫星上限 | 数据非 `RED`、风控未否决；幅度 ≤10pp（风险减仓不受此限） |
+| 别人恐惧时贪婪 | 投降式抛售、超卖、极端流出等“恐惧”极值 | **只展示，不执行加仓**；LLM 与 UI 不得把它当加仓理由 | 任何逆向加仓须通过 §12.7 全部 7 条 + 用户书面签字；未通过前 UI 明示“未通过晋升” |
+
+共同约束：
+
+- 至少 2 个独立信号同时到达极端分位；价格确认（趋势未继续同向加速，或出现反转结构）。
+- 数据 `RED`、账本断链、配置哈希不符、风控否决时，两半都不得加仓；只允许降险或空仓建议。
+- 调整不得把卫星仓推出 `[L,H]`；风险减仓可以低于 `L`，但必须由风控/回撤闸触发并记录。
+- `MISSING/DEGRADED/REVISED_ONLY` 字段不得作为“恐惧→贪婪”加仓的依据；缺失时只展示、不行动。
+- 逆向格言是观察维度，不是默认加仓理由；未通过 §12.7 前，后半句只读/只减不加。
+
+**引用更正**：§8.4 末段与 §8.5 第二条写的“§12.8”是笔误，正确的晋升门槛是 §12.7；§12.8 是 GPR vintage 规则。旧句保留，以本更正为准。
+
+### 8.4.2 多指标高低点交叉/重叠的统计验证（数据说话）
+
+本小节落实 README 第 19 条：不把“别人贪婪时恐惧，别人恐惧时贪婪”当口号，而是用**两个或更多独立指数/指标**的高低点交叉、重叠等组合事件，统计买入低点、卖出高点的命中率与盈利/亏损概率。v1 只做研究与展示，不直接产生加仓动作。
+
+**事件定义（计划进 `strategy.yaml` 的 `contrarian.stats.*`，P2 落地；预注册后冻结）**
+
+| 概念 | 可执行定义 |
+|---|---|
+| 指标池 | 至少 2 个、来自不同特征组；候选：`MOM_RSI14`、`FLOW_CFTC_NET_PCT`、`FLOW_SPDR_CHG_4W`、`XMK_INNER_OUTER_PREMIUM`、`GEO_SCORE`、`TRD_PX_VS_MA200`、`VOL_PCT_1Y`。具体清单、阈值、窗口在跑数前写入预注册文件并记录哈希。 |
+| 独立性 | 同一事件内指标两两 Spearman \|ρ\| ≤ 0.7（在重叠窗口上计算）；超过则只保留一个，或使用预先定义的合成分。禁止把同一驱动重复计数。 |
+| 低点/高点 | 指标进入底部/顶部极端分位（初始默认 20%/80%，待 P2/P3 校准）并持续至少 2 个交易日；或价格局部极值（前后各 k 个交易日，k 预注册）。两种定义必须分开报告，不得混算。 |
+| `CROSS` | 单个指标由非极端区跨入极端区，记为一次交叉事件。 |
+| `OVERLAP` | 同一方向、至少 2 个独立指标在 N 个交易日内同时处于极端区，记为一次重叠事件；N 初始默认 5，预注册。 |
+| `DIVERGENCE` | 价格创新低/新高，但指标未创新低/新高；只作补充证据，不单独触发动作。 |
+| 事件去重 | 同一指标组合在冷却期（初始默认 20 个交易日）内只算第一次；同一事件只计一次，禁止把连续多日读数当多个独立样本。 |
+
+> 主统计必须使用 **≥2 个独立指标的同向组合事件**（`OVERLAP` 或 `DIVERGENCE` 组合）；单指标 `CROSS` 只作拆分/对照，不得单独作为晋升证据。
+
+**统计口径（每次分析必须全部给出）**
+
+| 指标 | 定义 |
+|---|---|
+| 样本量 | 去重后的独立事件数 N；同时报告原始触发日数，二者不得混写。 |
+| 买入低点命中率 | 事件后 h 个交易日收益 `r_h > 0` 且覆盖往返成本的比例；h ∈ {5, 10, 20, 60}，全部报告。 |
+| 卖出高点命中率 | 事件后 h 日 `r_h < 0` 且覆盖成本的比例；另报“未来 h 日最大回撤超过阈值”的口径，两种口径分开。 |
+| 盈利/亏损概率 | 命中与未命中的比例；另给平均盈利、平均亏损、盈亏比、扣费后期望收益。 |
+| 收益定义 | `r_h = ln(P_{t+1+h}^{open} / P_{t+1}^{open})`；T 日收盘确认事件，T+1 开盘执行，禁止用 T 日收盘价成交。 |
+| 置信区间 | 命中率给 Wilson 95% CI；均值收益给 bootstrap 95% CI（至少 2,000 次，随机种子固定）。 |
+| 基准对照 | 同资产、同持有期的无条件命中率与期望收益；报告事件组减基准的差值与 CI。 |
+| 显著性 | 二项检验或置换检验的 p 值；多指标组合、多窗口、多阈值必须做多重检验校正（Benjamini–Hochberg FDR 或 Bonferroni），并报告 `n_trials`。 |
+| 重叠样本 | 持有期重叠的事件不得当独立样本；使用分块 bootstrap 或间隔采样，并报告处理方法。 |
+| 稳定性 | 至少 5 年数据、跨 2 个以上 regime 的子样本；参数 ±20% 敏感性；walk-forward 样本外；PBO < 0.5。 |
+
+**数据与执行纪律**
+
+- 只使用 `available_at <= 事件日截止时点` 的数据；事件确认后才允许计算未来收益。收益窗口内的数据只能用于评估，不得回流到事件定义。
+- GPR 当前为 `REVISED_ONLY`，不得进入晋升统计；`MISSING/DEGRADED/PROXY` 不得作为“恐惧→贪婪”加仓依据；缺失不填 0、不前向填充。
+- 费用、滑点、整手、停牌/涨跌停与 §12.3 一致；无法成交记 `UNFILLED`，不得假设成交。
+- 预注册必须冻结：指标池、独立性阈值、分位阈值、窗口、事件定义、持有期、成本、样本切分、显著性阈值。跑完后改任何一项，必须重开新实验并保留旧结果。
+- 必须报告所有尝试过的指标组合、窗口与阈值；只报最好的一组视为违规。
+- 结果写入 `report/research/contrarian/`（计划）并附逐事件 CSV/JSON 明细、汇总 JSON、复现命令与配置哈希；UI 必须显示 N、CI、扣费后结果和“未通过/样本不足”状态。
+
+**判定与使用边界**
+
+- 任一口径出现以下情况即标 `INSUFFICIENT_EVIDENCE`，只展示、不产生买卖动作：N < 30；置信区间跨 0；扣费后期望 ≤ 0；样本外不成立；多重检验校正后不显著；结果依赖单一 regime/单一年份。
+- 统计通过不等于可交易：买入低点仍须过 §12.7 全部 7 条 + 用户书面签字；卖出高点只能作为降险证据，仍受 §9 风控与数据质量闸约束。
+- 禁止用单次事件、单一年份、事后挑选的指标解释结果；禁止 LLM 编造命中率、概率或收益；所有数字必须能回到逐事件明细与复现命令。
+- 本小节的统计报告是研究产物，不进入事实包、不作为 LLM 可直接引用的数字；LLM 若引用，必须走 §11.6 引用审计。
 
 ### 8.5 地缘政治预注册假设
 
@@ -881,9 +1116,9 @@ satellite_cap = min(30%, 100% - core - cash_floor)
 
 | 参数 | 值 | 说明 |
 |---|---|---|
-| 模型 | `qwen3.5:9b`（Ollama，Q4） | 备选 `qwen3.5:4b`/`qwen2.5:7b`/`deepseek-r1:8b` 仅按配置切换 |
+| 模型 | `deepseek-r1:8b`（Ollama，Q4） | 备选 `qwen3.5:4b`/`qwen2.5:7b`/`qwen3.5:9b` 仅按配置切换 |
 | 思考 | `think=false` | 必须关闭；否则可能长时间无正文 |
-| 温度 | `0.1` | 降低随机性，但不承诺逐位复现 |
+| 温度 | `0` | 降低随机性，但不承诺逐位复现 |
 | `num_ctx` | 8192 | 事实包 + 提示词 + 输出 |
 | `num_gpu` | 0 | 2GB 显存不足以承载；CPU 推理 |
 | `num_thread` | 4 | 与 i7-6700HQ 匹配，避免打满 |
@@ -1044,6 +1279,7 @@ T_final = T_committee
 | 子样本稳定性 | 不同年代/波动 regime | 不出现只靠单一行情 |
 | 成本敏感性 | 费用/滑点加倍 | 结论不反转 |
 | 基准对照 | vs B1/B2/B3 | 必须同口径、含成本 |
+| 多重检验 | 多指标组合、多窗口、多阈值搜索 | 报告 `n_trials`；FDR 或 Bonferroni 校正后仍显著；未校正不通过 |
 
 ### 12.7 H-GEO 与逆向叠加的晋升门槛
 
@@ -1059,6 +1295,9 @@ T_final = T_committee
 
 未满足：只读/只减不加；UI 明示“未通过晋升”。
 
+- 本门槛只约束“加仓”方向（含“别人恐惧时贪婪”的逆向加仓与 `H-GEO-1`）；“别人贪婪时恐惧”的降险不因未过门槛而被禁止，但仍受 §9 风控与数据质量闸约束。
+- 多指标高低点交叉/重叠统计报告（§8.4.2）是晋升的必交证据；未提交、或报告为 `INSUFFICIENT_EVIDENCE`，视为未通过。报告至少包含 N、Wilson CI、扣费后收益、基准对照、多重检验校正、walk-forward 样本外与 PBO。
+
 ### 12.8 GPR vintage 规则
 
 - 当前下载文件是修订后序列；不能把今天修订后的值当成当时可见值。
@@ -1066,6 +1305,7 @@ T_final = T_committee
 - 没有 vintage 的历史段：标 `REVISED_ONLY`，只用于研究/展示，不得用于 H-GEO 晋升。
 - 保守滞后只能防“发布时点”，不能防“修订偏差”；两者必须分开写。
 - 若未来获得官方 vintage 档案，必须记录版本、抓取日、校验和，并重跑对表。
+- `现状`（2026-10-21）：P1 已有 `data/vintage.py` 的 `load_gpr_vintage()`，只读 `data/raw` 原始快照，按 `fetched_at <= available_at` 且 `0 <= fetched_at.date() - as_of <= 7` 天选取；早于首个快照或相差超过 7 天时返回 `None`，历史段仍标 `REVISED_ONLY`，不得反推。
 
 ### 12.9 LLM 无法历史回测
 
@@ -1078,6 +1318,7 @@ T_final = T_committee
 - 先写假设，再看数据；禁止先看结果再编故事。
 - 记录试验次数；Deflated Sharpe 必须带 `n_trials`。
 - 不因单次事件/单一年份改规则。
+- 指标组合、分位阈值、持有期每多试一种，就多一次检验；必须报告 `n_trials` 并做 FDR/Bonferroni，禁止只报最优组合。
 - 不把“没有信号”硬解释成“信号被市场提前定价”。
 - 不用未来修订数据、幸存者偏差、前视复权。
 - 任何规则变更都要重跑基准与敏感性。
@@ -1215,7 +1456,9 @@ T_final = T_committee
 
 ## 15. 工程规范
 
-### 15.1 目录（计划，P0 不创建）
+### 15.1 目录（`现状` + `计划`）
+
+`PROJECT.md` 维护完整的当前目录树与逐文件作用；下面是规则层面的结构约束，两者冲突时以 `PROJECT.md` 的现读结构为准，并同批修正本节。标注 `计划` 的包在落地前不得写成现状。
 
 ```text
 AGENTS.md
@@ -1236,38 +1479,42 @@ config/
   strategy.yaml
   llm.yaml
 data/
-  raw/
-  normalized/
-  manual/
-  decisions/
-  paper/
-  live/            # gitignored
+  raw/             # 原始数据
+  normalized/      # 数据规范化
+  manual/          # 维护后数据
+  reference/       # 参考数据（2026-10-23 补）：交易日历等非行情产物 + 同名 .meta.json
+  decisions/       # 决策层数据
+  paper/           # 纸面层数据
+  live/            # 实盘记录 gitignored
 logs/
 report/daily/YYYY-MM-DD/
 src/main/python/com/sun/shensuan/gold/
   _bootstrap.py
-  common/
-  config/
-  data/
-  features/
-  regime/
-  strategy/
-  risk/
-  llm/
-  decision/
-  backtest/
-  paper/
-  report/
-  ui/
-  cli/
+  cli.py
+  common/          # 原子写、哈希、日志、路径、时间、异常
+  config/          # YAML 加载与 schema 校验
+  data/            # 适配器、规范化、PIT、存储、流水线、入库
+  features/        # 计划
+  regime/          # 计划
+  strategy/        # 计划
+  risk/            # 计划
+  decision/        # 计划
+  backtest/        # 计划
+  paper/           # 计划
+  report/          # 计划
+  llm/             # 计划
+  ui/              # 计划
 src/test/python/com/sun/shensuan/gold/
   conftest.py
-  fixtures/
+  fixtures/        # 共享夹具（非测试模块）
   experimental/    # 非正式代码；验证通过后迁入 main（§15.13）
-  test_*.py
+  unit/            # 单元测试
+  contract/        # 数据契约测试
+  integration/     # 集成测试
+  architecture/    # 结构/注释/导入边界静态检查
 ```
 
-> 说明：`docs/` 已存在（`确定性规则.md`）；`report/` 为计划新增，`PROJECT.md` 尚未登记，后续同步。
+> 说明：`docs/` 已存在（`确定性规则.md`）；`report/`、`temp/`、`data/paper/`、`data/live/` 与 `features/`–`ui/` 为计划新增。任何 `.py` 新增/移动/删除/重命名都要同批更新 `PROJECT.md`（§15.14）。
 
 ### 15.2 Python 与 conda
 
@@ -1292,10 +1539,24 @@ src/test/python/com/sun/shensuan/gold/
 - 所有路径从 `config_base`/配置派生，不写死绝对路径。
 - 时区、交易日历、单位换算集中在 `common`，不得各模块各写一套。
 
-### 15.5 代码风格
+### 15.5 代码风格与注释
 
 - 标识符英文；注释/docstring 中文；公式类函数写清输入、输出、单位、窗口。
 - 类型注解优先；公共函数必须有 docstring。
+- **注释硬要求**（`__init__.py` 除外）：
+  - 每个模块文件必须有模块级 docstring，一句话说明该文件负责什么、不负责什么。
+  - 每个类、函数、方法必须有中文 docstring；私有函数（`_` 前缀）同样必须有。
+  - 普通函数写清用途、参数含义、返回值与失败行为（抛什么异常／返回什么降级标记）。
+  - 公式类函数额外写清输入单位、输出单位、窗口长度、时间对齐口径；阈值引用配置键名，不写魔法数说明。
+  - 注释解释“为什么”和口径边界；禁止逐行复述代码“是什么”，禁止空话（如“处理数据”）。
+  - docstring 与实现同批维护：改公式、单位、返回形状或异常行为时，必须同批改 docstring。
+  - `__init__.py` 不要求 docstring，但只允许做导出与包级常量，禁止写业务逻辑。
+- **配置文件注释硬要求**（README 第 16 条，与代码同批维护）：
+  - 每份 YAML 必须有文件头注释：用途、生效阶段、规则依据、修改影响。
+  - 每个顶层配置段必须有注释说明用途、单位、取值范围/不变量。
+  - 非直观键必须注释：时间单位、百分比口径、PIT 规则、降级行为、阈值来源。
+  - 注释与取值同批更新；改阈值/单位/阶段时不得留下旧注释。
+  - 注释不进入 `config_hash`（哈希只覆盖 `safe_load` 后的文档）；不得用改注释代替改取值。
 - 不使用魔法数；阈值进 YAML。
 - 失败显式：抛异常或返回带 `quality` 的结果，不静默 `NaN`/0。
 - 日志用结构化 JSONL；关键字段：`run_id/task/stage/status/duration_ms/error`。
@@ -1313,6 +1574,8 @@ src/test/python/com/sun/shensuan/gold/
 | `llm.yaml` | 模型、超时、角色、权重、`mode: influence/shadow/off` |
 
 - 配置必须有 schema 校验；缺键/类型错→启动失败，不得用默认值蒙混。
+- 配置文件必须带详细中文注释：文件头、每个顶层段、非直观键的单位/范围/PIT 口径/降级行为（§15.5）。
+- 改配置值、单位或生效阶段时，注释必须同批更新；架构层静态测试检查文件头与顶层段注释是否存在。
 - 每次决策记录 `config_hash`；配置变更必须走任务与测试。
 
 ### 15.7 日志
@@ -1355,7 +1618,7 @@ src/test/python/com/sun/shensuan/gold/
 - 不并发第二个本地 LLM；不与 RD-Agent 同时抢内存。
 - 大文件读取用流式/分块；不把全量面板复制多份。
 
-### 15.11 README 15 条约束映射
+### 15.11 README 19 条约束映射
 
 | # | README 约束 | 本文件落点 | 执行口径 |
 |---|---|---|---|
@@ -1369,11 +1632,15 @@ src/test/python/com/sun/shensuan/gold/
 | 8 | Docker | §15.8 | Dockerfile + `docker run`；无 compose |
 | 9 | 代码必须有测试用例 | §17 | 离线 pytest；负向测试；性能预算 |
 | 10 | 16GB 内存/2GB 显存/i7-6700HQ | §15.10 | 单实例 LLM；启动前关闭无关应用并做内存预检；峰值目标 <9.5GB（未实测） |
-| 11 | rdagent 本地 LLM，四模型可用，时间换结论 | §11.3、§20.7 | qwen3.5:9b（主）；qwen3.5:4b / qwen2.5:7b / deepseek-r1:8b（备）；单实例 |
+| 11 | rdagent 本地 LLM，四模型可用，时间换结论 | §11.3、§20.7 | deepseek-r1:8b（主）；qwen3.5:4b / qwen2.5:7b / qwen3.5:9b（备）；单实例 |
 | 12 | 手动交易，交易数据手动录入 | §13.2、§13.6、§14.2 | 人工回录 `FILL`；不接券商；不保存账号/密码/令牌 |
 | 13 | 日志保留 7 天 | §15.7、§19.7 | 在线日志 7 天；日志不进 2 年备份 |
 | 14 | 运行链路图 + 节点状态 | §4.5、§14.1、§17.9 | 每节点写 `pipeline_status.json`；超时/失败在链路页直接可见 |
 | 15 | 非正式代码先在 test 目录验证，成功后移入 main | §0.4、§15.13、§17.2、§20.7 | 原型放 `src/test/.../experimental/`；pytest EXIT=0 并过依赖/密钥/确定性闸后迁移；main 禁止导入 test |
+| 16 | 代码与配置文件要有详细注释（`__init__.py` 除外） | §15.5、§15.6、§17.2 | Python 模块/类/函数 docstring；YAML 文件头/顶层段/非直观键注释；AST 与配置注释静态检查 |
+| 17 | 测试代码文件也分目录 | §0.4 第 19 条、§17.2 | `unit/contract/integration/architecture` 四层；测试根目录禁止平铺 `test_*.py` |
+| 18 | 数据质量高、数据一致性 | §6.5、§6.6、§12.2、§17.3、§17.4 | PIT 字段、质量闸、坏行剔除留档、确定性规范化/哈希、契约与截断不变性测试 |
+| 19 | 逆向格言：两个或更多独立指标的高低点交叉/重叠统计（买入低点/卖出高点命中率、盈亏概率、数据说话） | §8.4.2、§12.7、§17.2 | 预注册指标组合与阈值；N、Wilson CI、扣费后收益、基准对照、多重检验、walk-forward；未通过只展示/只减不加 |
 
 ### 15.12 依赖与版本策略
 
@@ -1410,6 +1677,25 @@ README 第 15 条：非正式代码先在 `test` 目录验证，验证成功后�
 **记录**：看板任务写 `prototype_path → main_path`、验证命令与退出码、迁移 commit。未通过验证的原型不得进入人工清单、决策卡或生产日链。
 
 **范围澄清**：缺陷修复不属于“非正式代码”，但仍必须先写失败测试、再改 `main`，不得以“紧急”为由跳过测试。
+
+### 15.14 代码结构回写 PROJECT.md
+
+`PROJECT.md` 是仓库当前代码结构的唯一索引；`AGENTS.md` 只写规则，不复制完整文件清单。
+
+**必须同批回写的触发条件**：
+
+- 新增、删除、移动、重命名任何 `.py` 文件或代码目录。
+- 新增或删除包、模块、入口脚本、测试层目录。
+- 某文件职责发生实质变化（例如从“适配器”变成“适配器 + 缓存”）。
+
+**回写内容（最低要求）**：
+
+1. 目录树：`src/main/python/` 与 `src/test/python/` 的现读结构。
+2. Python 文件作用表：每个 `.py` 文件的路径（相对导入根）与一句话职责；`__init__.py` 可合并成一行说明。
+3. 测试布局：`unit/contract/integration/architecture` 各层放什么、现有测试文件对应什么。
+4. `计划` 与 `现状` 分开标注；未创建的目录写在计划区，不得画进现状树。
+
+**验收**：静态测试 `test_all_python_files_listed_in_project_md` 必须通过——仓库内每个非 `__init__.py` 的 `.py` 路径都能在 `PROJECT.md` 中找到；`__init__.py` 允许按包合并登记。未回写或漏登记即任务未完成。
 
 ---
 
@@ -1471,6 +1757,10 @@ README 第 15 条：非正式代码先在 `test` 目录验证，验证成功后�
 - 变更文件清单与增删行数明确。
 - 没有把 `计划` 写成 `现状`。
 - 非正式代码已按 §15.13 在 test 树验证并迁入 main；`main` 无原型残留、无 test 导入。
+- 非 `__init__.py` 的模块/类/函数均有中文 docstring；AST 审计缺失数为 0（§15.5、§17.2）。
+- 四份 YAML 配置均有文件头、顶层分节与关键字段注释；配置注释静态检查通过（§15.6、§17.2）。
+- `PROJECT.md` 已同批回写目录树与逐文件作用；结构静态检查通过（§15.14）。
+- 测试文件位于 `unit/contract/integration/architecture` 子目录；测试根目录无平铺 `test_*.py`（§0.4 第 19 条）。
 
 ### 16.5 自动提交协议
 
@@ -1511,6 +1801,7 @@ README 第 15 条：非正式代码先在 `test` 目录验证，验证成功后�
 ### 16.7 文档同步
 
 - 改判据→同批改 docstring、本文件、CHANGELOG、看板、测试。
+- 改配置值/单位/生效阶段→同批改对应 YAML 注释；注释与取值不符视为任务未完成。
 - 改计数词→同批扫派生说法（角色数、来源数、阶段数）。
 - 改数据源→同批改数据表、质量闸、降级规则、UI 数据健康页。
 - 不把规划写成现状；不把“未跑”写成“通过”。
@@ -1544,12 +1835,14 @@ README 第 15 条：非正式代码先在 `test` 目录验证，验证成功后�
 | 集成 | 抓取→规范化→质量闸→事实包 | 缺失源→`DEGRADED`；零持仓→`DEGRADED` |
 | 链路 | 节点状态机、超时、失败传播、状态文件原子写 | 某节点超时→链路显示 `TIMEOUT`；下游 `SKIPPED` |
 | 回测 | 会计恒等式、费用、整手、停牌 | NAV 与现金流一致 |
+| 逆向统计 | 高低点事件定义、去重、PIT、收益从 T+1 开盘起算、命中率/CI、成本后收益、样本量闸、多重检验 | 合成事件 N=40 命中率可手算；N<30→`INSUFFICIENT_EVIDENCE`；删未来数据后统计不变 |
 | 风控 | 区间不变量、回撤分级、换手 | `0 ≤ L ≤ H ≤ 30%`；core+sat+ 现金=100% |
 | LLM | schema、引用、越界、注入、超时 | 编数→invalid；越界→invalid |
 | 账本 | 哈希链、篡改检测、对账 | 改一条→链断 |
 | UI | AppTest、只读、无下单按钮 | 页面无 broker API |
 | 运维 | cron/Docker/备份恢复 | 恢复后哈希一致 |
 | 架构/流程 | main 不导入 test；原型迁移后无重复实现 | 静态导入检查命中 `src.main → src.test` 即失败；`experimental/` 残留检查 |
+| 结构/注释 | docstring 齐全、四份 YAML 有维护注释、测试分层、PROJECT.md 结构同步 | AST 审计非 `__init__.py` 缺失数为 0；每份 YAML 有文件头注释、每个顶层键与 `data_sources` 数据集条目有前置注释（含缺注释负对照）；测试根目录无平铺 `test_*.py`；每个 `.py` 在 `PROJECT.md` 有登记 |
 
 ### 17.3 数据契约测试
 
@@ -1571,6 +1864,7 @@ README 第 15 条：非正式代码先在 `test` 目录验证，验证成功后�
 - 同一输入、同一配置、同一代码→`fact_pack_hash`/`decision_hash` 一致。
 - 浮点格式固定；JSON 键排序；时区固定。
 - 回测不得读取未来修订值；GPR 无 vintage→`REVISED_ONLY` 且不参与晋升。
+- 逆向统计事件在 T 日收盘确认，收益从 T+1 开盘起算；删除未来数据后历史事件与统计不变；GPR `REVISED_ONLY` 不进入晋升统计。
 
 ### 17.5 回测会计恒等式
 
@@ -1661,21 +1955,260 @@ README 第 15 条：非正式代码先在 `test` 目录验证，验证成功后�
 
 | 阶段 | 交付 | 验收闸 |
 |---|---|---|
-| **P0（当前）** | 本文件 `AGENTS.md`：系统设计与 Agent 行为规范 | 15 条 README 约束、8 个参考项目、4 项用户决策、地缘接口与 9 角色全覆盖；无代码/数据目录改动 |
-| P1 | 工程骨架、`看板.md`、requirements、pytest.ini、配置模板；数据适配器（含 GPR/快讯/油价/事件日历）、原始/规范化层、PIT、质量闸、手工 CSV | 5 年 518880/SGE/GC + AU0 全历史实测；GPR 至 2026-10-13 入库；缺口可见；离线测试绿 |
-| P2 | 特征注册表（含地缘组）、事实包、regime（含 `GEO_SHOCK`）、仓位带、风控引擎、规则 trace | 黄金回放逐位一致；边界/无未来函数测试；带与否决不变量；地缘字段缺失时只读/只减 |
-| P3 | 事件驱动回测、费用、B0–B4、walk-forward、指标报告 | 会计恒等式；基准可复现；样本外报告；逆向叠加与 H-GEO-1/2 启用/关闭结论 |
+| **P0** | 本文件 `AGENTS.md`：系统设计与 Agent 行为规范 | 19 条 README 约束、8 个参考项目、4 项用户决策、地缘接口与 9 角色全覆盖；无代码/数据目录改动 |
+| **P1（当前，工程完成待验收）** | 工程骨架、`看板.md`、requirements、pytest.ini、配置模板；数据适配器（含 GPR/快讯/油价/事件日历）、原始/规范化层、PIT、质量闸、手工 CSV；代码/配置注释、测试分层与结构索引 | 5 年 518880/SGE/GC + AU0 全历史实测；GPR 至 2026-10-13 入库；缺口可见；离线测试绿；非 `__init__.py` docstring 缺失 0；测试分层；`PROJECT.md` 结构同步；最新测试条数与退出码见 `看板.md` T-015 |
+| P2 | 特征注册表（含地缘组）、事实包、regime（含 `GEO_SHOCK`）、仓位带、风控引擎、规则 trace；逆向多指标高低点统计原型（只读） | 黄金回放逐位一致；边界/无未来函数测试；带与否决不变量；地缘字段缺失时只读/只减；统计原型事件去重与 PIT 测试绿，且不产生交易动作 |
+| P3 | 事件驱动回测、费用、B0–B4、walk-forward、指标报告；逆向统计报告（N/CI/成本后/样本外/PBO） | 会计恒等式；基准可复现；样本外报告；逆向叠加与 H-GEO-1/2 启用/关闭结论；统计报告为 `INSUFFICIENT_EVIDENCE` 时只展示，未过 §12.7 不加仓 |
 | P4 | 确定性日链、决策卡/研报、纸面账本、人工成交回录 | 20 日回放；账本零断链；卡片字段完整；缺口可见 |
 | P5 | LLM 客户端、提示词、9 角色 2 轮委员会、引用审计、clamp/降级 | 5 个真实交易日；schema 或降级 100%；零越界；地缘角色零原文引用；端到端热启动 <20min；峰值 <9.5GB（实测） |
 | P6 | Streamlit 全部页面、What-if、审计查看器、数据健康、成交录入 | AppTest 全页通过；只读行为；加载 <3s；无副作用 |
 | P7 | cron、Dockerfile/`docker run`、运行手册、20 日无人值守纸面运行 | 20/20 次运行；恢复演练；仅本地绑定；备份可恢复 |
 | P8 | 8–12 周评估、合规审计、术语表、v1.0 | 预注册指标达标；LLM/逆向叠加/地缘 go-no-go；用户签字；零真实订单 |
 
+> 各阶段验收闸的可执行展开见 §18.3；放行规则见 §18.1–18.2、§18.5。P1 行的“T-015”是历史证据指针；最新 P1 测试与数据证据以 `看板.md` 的 T-019/T-020 为准。
+
 **顺序不可颠倒**：P1–P4 的确定性内核、测试与回测必须先于 P5 的 LLM 和 P6 的 UI。
 
 **原型晋级**：所有阶段的新模块遵守 §15.13——非正式代码先在 test 树验证，通过后迁入 main；验收证据须含迁移前后的 pytest 退出码。
 
-**P0 当前状态（P0 设计定稿时）**：只新增本文件；README.md、PROJECT.md、.gitignore 的用户改动未触碰；不创建代码、配置、数据或台账文件。
+**P1 当前状态（2026-10-21）**：`src/main/python/com/sun/shensuan/gold/` 下的配置、数据适配器、原始/规范化层、PIT、质量闸、运行链路与 CLI 已实现；真实抓取验收 run_id `p1-acceptance-20261019-d` EXIT=0，离线测试证据见 `看板.md` T-001–T-015 与 `CHANGELOG.md`。P1 产物尚未提交、未推送，**等待用户验收**；P2 特征/事实包/regime 尚未开始。
+
+**P1 当前状态补充（2026-10-21，T-018）**：新增 `usdcny_mid`（SAFE 人民币中间价，8,068 行，1994-01-01..2026-10-20）与 `data/vintage.py` 的 GPR 原始快照读取；真实日链 run_id `p1-t018-20261021` EXIT=0，离线测试 `112 passed`。新闻/事件历史仍无法由现有接口回补，`GEO_SCORE` 权重与特征计算仍属 P2/P3；详见 `看板.md` §11。
+
+**历史 P0 状态（2026-10-19 设计定稿时）**：只新增本文件；README.md、PROJECT.md、.gitignore 的用户改动未触碰；不创建代码、配置、数据或台账文件。
+
+### 18.1 验收总则：三层闸与非专业四问
+
+> 本小节回答一个问题：用户没有金融专业知识、无法逐行审查策略逻辑时，凭什么判定一个阶段“通过”。答案是：**不要求用户判断策略好坏**；要求机器证明可复现与不变量，要求用户只判断四件可观察的事，业务选择单独签字。
+
+**三层闸（缺一不可）**
+
+| 层 | 谁执行 | 判据 | 不能替代什么 |
+|---|---|---|---|
+| 机器闸 | Agent（或未来的 CI，若接入） | 命令原文、退出码 0、0 failed、条数与哈希符合预期；负对照被抓 | 不能被用户签字替代 |
+| 非专业人工闸 | 用户 | 四问全答“能”；任一“不能/看不懂/未查”＝不通过 | 不能被“测试全绿”替代 |
+| 签字闸 | 用户 | 只签业务选择（仓位上限、风险承受、是否启用规则、是否上线 LLM） | 不构成收益承诺，不能替代前两层 |
+
+**五条判定纪律**
+
+1. 同一份验收只对应同一份代码 + 配置 + 数据；任一变化，旧证据作废，必须重跑并重新出卡。
+2. 每阶段至少一条负对照：故意注入一个错误（缺字段、未来数据、越界、断链、编数），验收必须判红；抓不住＝验收本身不合格。
+3. 关键数字至少一条独立复算：用手工夹具或独立公式重算，不得只让同一函数跑两遍；同一实现自证不算验证。
+4. “测试全绿”只证明测试覆盖的范围；“阶段通过”只证明该阶段交付与闸门满足，**不证明策略有效或会盈利**。
+5. 证据必须能回到本机文件/命令输出；禁止用“Agent 认为”“模型判断”“大概没问题”作为通过理由。
+
+### 18.2 非专业四问（每阶段都问）
+
+用户不需要理解 MA200、RSI、基差、PBO 等术语，也不需要判断某个指标是否“有道理”。这些由机器闸与 P3 的样本外/基准/成本/多重检验证据回答。用户只回答四个可观察的问题：
+
+| # | 问题 | 在哪里看 | 什么算“能” | 什么算“不能” |
+|---|---|---|---|---|
+| 1 | 数字有来源吗 | 决策卡、事实包、覆盖报告 | 随机抽 3 个数字，每个都能点到 `source`、`as_of`、`available_at`（或 `fact_id`） | 出现没有来源的数字；只有“模型认为”；日期对不上 |
+| 2 | 缺口显眼吗 | 数据健康页、质量横幅、报告第一屏 | `MISSING/DEGRADED/PROXY/REVISED_ONLY/STALE/PROVISIONAL` 有列表、有原因；已知零成交/空日历不会被写成“正常” | 全绿但已知源零成交/事件为空；缺口藏在二级页面；用 0 冒充缺失 |
+| 3 | 能确认不越权吗 | 界面、仓库静态扫描 | 只有“录成交/手动触发”两个写动作；无券商 API、无下单按钮、无账号/密码/令牌输入 | 出现任何券商连接、自动下单、凭证保存 |
+| 4 | 结论能作废吗 | 决策卡、研报、回测报告 | 每条建议都有“最强反方”和可观察的“失效条件” | 只有单边论证；“不会错”；失效条件不可观察 |
+
+判定规则：
+
+- 用户只回答“能 / 不能 / 看不懂”；**“看不懂”不是通过**。Agent 必须把同一结论改写成大白话再提交，不得要求用户先学金融术语。
+- 四问中任一“不能/看不懂/未查”，该阶段不通过；不允许用“其余都很好”折中放行。
+- 用户签字只证明“我看懂了这些选择并同意”，不证明“策略会赚钱”，也不替代机器闸。
+
+### 18.3 分阶段验收标准
+
+下表把 §18 路线图的验收闸展开到可执行项。命令标“计划入口”的，在该阶段实现后才可执行；**未实现前该阶段不得标 DONE**。所有阶段同时满足 §16.4 DoD 与 §17 对应测试层；本节是阶段放行判据，不替代测试实现细节。
+
+**P0 设计**
+
+| 验收项 | 机器证据 | 非专业怎么看 | 不通过条件 |
+|---|---|---|---|
+| README 19 条逐条有落点 | §15.11 表 1–19 行齐全，每条有对应章节 | 打开 §15.11 从上往下数，1–19 不缺号 | 缺号、重复、只写“见某处”但该处不存在 |
+| 8 个参考项目、9 个角色、P0–P8 齐全 | §3 表 8 行；§11.1 表 9 行；§18 表 9 个阶段 | 数行数；每个阶段有交付与验收闸 | 数量不符或阶段缺号 |
+| 不得有无证据声明 | 全文扫描“已回测/已盈利/已接入/已上线”等词，只允许出现在“未做/禁止/计划”语境 | 看到“已经赚钱/已经验证有效”即为不通过 | 任何收益、有效性、实盘接入声明 |
+| 文档计数一致 | README 约束计数、PROJECT 计数、§15.11 映射数一致 | 三处都应是 19 | 任一处仍写 18 或自相矛盾 |
+
+**P1 数据层**
+
+| 验收项 | 机器证据 | 非专业怎么看 | 不通过条件 |
+|---|---|---|---|
+| 主标的覆盖 ≥5 年，AU0 全历史 | 覆盖报告逐数据集给行数与首末日期；518880/SGE/GC 首末差 ≥5 年；AU0 首日为源最早日 | 看日期：例如 2016→2026 是 10 年；不足 5 年即不通过 | 任一主标的不足 5 年；AU0 只取近端 |
+| GPR 可用且标记修订 | 覆盖报告给出 GPR 首末日期；`vintage=REVISED_ONLY` 可见 | 日期须覆盖到本阶段验收基准日（P1 基线为 2026-10-13，后续不得倒退）；标记必须出现 | 把修订序列当 vintage；无标记 |
+| 质量缺口可见 | `coverage` 输出 `missing/degraded/red/revised_only` 与 `continuity`（工作日缺口/覆盖率；日频源覆盖率 <80% 给 warning）；核心源不得 RED/STALE；零成交/零持仓标 DEGRADED | 打开覆盖报告第一屏；已知坏源与 SPDR 这类连续性缺口必须在列表里 | 核心源 RED/STALE；坏源/连续性缺口未列；静默填 0 |
+| PIT 字段齐全 | 规范化行含 `as_of/available_at/fetched_at/source/ingest_run_id/vintage/quality`；`available_at >= as_of` | 随机抽 3 行，每个字段都有值 | 缺字段；`available_at < as_of`；盘中临时值未标 `PROVISIONAL` |
+| 单位与时区 | 各数据集单位按注册表声明（金价 CNY/g 或 USD/oz）；USD/CNY 已除以 100；时间统一 `Asia/Shanghai` 或带时区 ISO-8601；price/series/events 的 `date`/`as_of` 统一 `YYYY-MM-DD`（news `published_at` 带时区 ISO-8601）；复权/不复权不混用 | 抽 3 行看单位；汇率应在 6–8 量级，若出现 600–800 说明未除 100；`date` 不应出现 `T00:00:00` | 单位错；汇率未除 100；日期格式混用；复权混用 |
+| 原始只增、规范化幂等、坏行留档 | 重跑同日抓取不覆盖原始快照；同输入两次规范化哈希一致；`data/normalized/rejected/*.csv` 含原因 | 看原始目录日期是否只增；看 rejected 文件是否存在 | 覆盖原始快照；坏行静默消失；重跑结果不一致 |
+| 测试与结构 | `/usr/bin/python3.10 -m pytest` → EXIT=0、0 failed；docstring 缺失 0；YAML 注释检查通过；测试在四层目录；`PROJECT.md` 已登记 | 看命令摘要行与退出码；看 `PROJECT.md` 能否找到新增文件 | 任一测试失败；缺注释；测试平铺；文件未登记 |
+| 安全边界 | `.env` 不存在或被忽略；`data/live/` 不入 git；无券商 API | `git status` 看不到密钥/实盘文件 | 密钥、实盘记录、券商凭证入库 |
+
+**P2 特征、事实包与仓位带**
+
+| 验收项 | 机器证据 | 非专业怎么看 | 不通过条件 |
+|---|---|---|---|
+| 特征注册表完整 | 每个特征 12 个字段齐全；`fact_id` 唯一；公式/窗口/单位/缺失策略可读 | 任选 3 个特征，能看到“怎么算、用什么数据、缺了怎么办” | 字段缺失；同一 `fact_id` 两种算法 |
+| 事实包 PIT | `available_at <= cutoff`；`PROVISIONAL` 被剔除；截断未来数据后历史事实包不变 | 抽 3 个事实看日期；机器做截断对照，用户看“截断前后历史哈希一致”的结论 | 未来数据进入；截断后历史变化 |
+| 确定性 | 同输入、同配置、同代码 → 同一 `fact_pack_hash`；键排序、浮点格式固定 | 连跑两次，哈希字符串逐字相同 | 哈希不同；键序/浮点漂移 |
+| 仓位不变量 | `0 ≤ L ≤ H ≤ 30%`；`core + satellite + cash = 100%`；`cash ≥ 0`；RED 只减不加；veto → 0 | 看任一决策：卫星在 0–30%，三项相加 100% | 越界；现金为负；RED 仍加仓 |
+| regime 与滞回 | 状态进入/退出用双阈值；阈值来自 `strategy.yaml`；边界与滞回测试通过 | 抽一个阈值附近的日子，状态不应每天来回翻 | 单阈值抖动；阈值写死在代码 |
+| 缺失策略 | 不填 0、不前向填充；缺失组按剩余权重归一；缺 ≥2 组 → `DEGRADED` | 看 `missing` 列表与卡片横幅；空白不能当 0 | 用 0/前值/均值冒充；缺口不显示 |
+| 逆向统计原型只读 | 事件定义/去重/PIT 测试通过；N<30 → `INSUFFICIENT_EVIDENCE`；不写账本、不产生订单 | 原型输出里不应出现买入/卖出动作 | 原型直接给交易指令；把单指标当晋升证据 |
+| 无 LLM 参与 | P2 代码路径不导入 LLM 客户端 | 阶段报告写明“未调用 LLM” | P2 依赖模型才能出结果 |
+
+**P3 回测与统计验证**
+
+| 验收项 | 机器证据 | 非专业怎么看 | 不通过条件 |
+|---|---|---|---|
+| 会计恒等式 | 手工夹具逐笔可算：期末 NAV＝期初＋收益−费用−滑点＋现金利息；现金＋市值＝NAV；整手生效；无法成交记 `UNFILLED` | 报告须给一个可手算的例子（期初＋收益−费用−滑点＝期末），四项加减能对上 | 恒等式不成立；虚构成交；忽略费用/整手 |
+| 基准可复现 | B0–B4 同成本口径；同输入同哈希 | 报告必须有 B0–B4 对照，不能只报策略 | 缺基准；基准与策略成本口径不同 |
+| 样本外 | 至少 5 年 walk-forward；训练/测试有 purge/embargo；测试段不调参 | 报告写明训练/测试年份与隔离天数 | 全样本调参；无样本外 |
+| 过拟合诊断 | PBO、Deflated Sharpe（带 `n_trials`）、参数 ±20%、成本加倍、FDR/Bonferroni 全部报告 | 第一页能看到这些项目；缺一项即不通过 | 只报最优结果；无试验次数；无多重检验 |
+| 逆向统计报告 | N、原始触发日、命中率＋Wilson CI、扣费后期望、基准差、样本外、PBO 齐全 | 第一页必须显示 N 与“通过/证据不足” | 只有命中率没有 N/CI/成本；事后挑指标 |
+| 晋升闸 | §12.7 七条全过＋用户书面签字；否则只展示/只减 | 未过门槛时不得出现“建议加仓” | 未签字就启用加仓；把 `INSUFFICIENT_EVIDENCE` 说成有效 |
+
+**P4 日链、决策卡与纸面账本**
+
+| 验收项 | 机器证据 | 非专业怎么看 | 不通过条件 |
+|---|---|---|---|
+| 20 日回放 | 20/20 个交易日跑完；每日节点终态齐全；无未来函数 | 看回放清单是否 20/20，缺一天即不通过 | 漏日；用未来数据；节点无终态 |
+| 决策卡字段 | 模式、结论、动作、目标、3 条证据、最强反方、失效条件、该做/不该做、不行动、质量横幅、风险提示、哈希、复核齐全 | 任取一张卡，能回答“今天做什么、为什么、错了会怎样、不做什么” | 缺字段；只有结论没有反方/失效条件 |
+| 账本哈希链 | 每条含 `seq/prev_hash/hash`；校验命令 EXIT=0；篡改测试必断链 | 抽一条记录，前后哈希应连上；运行校验命令看退出码 | 断链；原地改历史；校验失败仍继续 |
+| 对账 | 成交与意图一一对应；数量一致、价格差 ≤0.5%、费用差 ≤1 元或 1%；差异开 `ISSUE`、不加仓 | 看对账表是否全配平；有差异应有红色标记 | 无对账；差异被忽略；无 `UNFILLED` |
+| 不越权 | 全仓静态扫描无券商 API/下单路径；界面无下单按钮 | 页面上只有“录成交/手动触发” | 任何自动下单或券商连接 |
+| 失败传播 | 数据 RED/账本断链/配置不符 → 停止或只减；链路页显示断点 | 人为制造一次失败，链路页应直接显示 | 只在日志里报错；下游照常出单 |
+
+**P5 LLM 委员会**
+
+| 验收项 | 机器证据 | 非专业怎么看 | 不通过条件 |
+|---|---|---|---|
+| 5 个真实交易日 | 每日有模式、最终目标（LLM 或明确 `DETERMINISTIC`）、审计、耗时；失败有降级原因 | 5 天记录齐全，每天都应有一个最终目标与原因；缺一天即不通过 | 只跑 1 天；某天无最终目标；失败被隐藏 |
+| 9 角色与两轮 | 第 1 轮 9 个角色都有终态；第 2 轮 4 个关键角色或显式 `skipped_due_to_budget`；失败角色有 `invalid` 原因 | 看每天的角色清单，不能少角色 | 角色缺失被静默；用半截输出凑委员会 |
+| Schema 与引用审计 | 合法 JSON 或 `invalid` 有原因；编造 `fact_id`、数值不符、单位/日期不符全部判 invalid | 看审计表：每条观点是否有引用与结论 | 编数仍参与聚合；审计缺失 |
+| 不越界 | 所有 `target_satellite_pct` 落在 `[L,H]`；越界即 invalid | 抽 5 条观点，目标值都应在区间内 | 任一越界进入最终目标 |
+| 新闻不外泄 | 输出无新闻原文/外部链接；注入内容不执行 | 搜索输出中是否出现原文或链接 | 出现原文/链接；执行了注入指令 |
+| 风控优先 | 风控失败按 veto；veto → 0；组合经理失败 → `T_det` | 看否决记录与最终目标 | veto 后仍加仓 |
+| 预算与硬件 | 端到端热启动 <20min；LLM 调用 <12min；实测峰值 ≤ P5 前按 9b 实测定下的阈值（初始占位 9.5GB）；单实例 | 看实测耗时/内存记录，不看“目标值” | 用目标值冒充实测；超过重定阈值仍放行；并发第二个实例 |
+| 留痕 | 每日记录模型 digest、`prompt_hash`、`fact_pack_hash`、原始输出、耗时；缺一项即不通过 | 看每天是否有这些字段 | 只存结论不存原始输出 |
+| 大白话 | 结论 ≤40 字；风险写“错了可能亏多少”；无反方/失效条件不通过 | 任选一张卡，非专业能读懂 | 术语堆砌；承诺收益；只写“注意风险” |
+
+**P6 界面**
+
+| 验收项 | 机器证据 | 非专业怎么看 | 不通过条件 |
+|---|---|---|---|
+| 9 个 Tab 可用 | AppTest 全页通过；无异常 | 逐页点开，不报错 | 任一页崩溃；空白页 |
+| 只读与写限制 | 仅“录成交/手动触发”两个写动作；无下单/券商/密钥输入 | 页面上找不到“下单/买入/卖出执行” | 出现下单按钮或 API key 输入 |
+| 质量横幅 | RED 时置顶可见；缺失/降级可点开看原因 | 人为切到 RED，横幅应第一眼可见 | 警告折叠；绿色掩盖缺口 |
+| 链路页 | 注入数据失败与 LLM 超时，页面显示 `FAILED/TIMEOUT`，下游 `SKIPPED` | 不打开日志，链路页应直接看到断点 | 只能翻日志才发现 |
+| What-if 无副作用 | 不调用 LLM、不写账本、不生成清单 | 运行 What-if 后账本/清单无新增 | 改写历史或产生订单 |
+| 可读性与性能 | 术语有解释；数字带来源/日期；加载 <3s；仅绑定 `127.0.0.1` | 随机点 3 个术语能看懂；页面不卡 | 术语无解释；公网绑定；加载超时 |
+
+**P7 运维**
+
+| 验收项 | 机器证据 | 非专业怎么看 | 不通过条件 |
+|---|---|---|---|
+| 无人值守 20 日 | 20/20 次运行；失败写 `ISSUE`；无手工修补 | 看运行清单与 `ISSUE` 列表 | 漏跑；失败被静默重试掩盖 |
+| Docker | `docker build`/`docker run` 成功；测试容器 `--network none`；非 root；只挂必要目录 | 按运行手册逐条执行 | 依赖宿主环境；暴露端口；root 运行 |
+| 备份恢复 | 恢复到临时目录后哈希一致；账本链完好；备份不含日志/密钥 | 看恢复演练记录与哈希对比 | 恢复后哈希不一致；备份含密钥 |
+| 日志与密钥 | 在线日志保留 7 天；无密钥/账号；轮转边界正确 | 看日志日期范围与内容抽查 | 超期保留；密钥入日志 |
+| 仅本地 | 服务绑定 `127.0.0.1`；无公网监听 | 看启动日志与端口 | 绑定 `0.0.0.0` |
+| 资源闸 | 起 LLM 前 `MemAvailable` 达标；不达标走 `DETERMINISTIC`；磁盘不足停止 | 看预检记录 | 内存不足仍起模型；磁盘满继续写 |
+
+**P8 评估与上线**
+
+| 验收项 | 机器证据 | 非专业怎么看 | 不通过条件 |
+|---|---|---|---|
+| 8–12 周 shadow | B3/B4 平行账本；指标预注册；不进入人工清单 | 看周报与预注册文件哈希 | 中途改指标；LLM 提前进清单 |
+| Go/No-Go | LLM、逆向叠加、地缘分别给出通过/不通过；`INSUFFICIENT_EVIDENCE` 按不通过 | 看一页结论与证据 | 用单次事件/单年数据证明有效 |
+| 用户签字页 | 大白话写清“做什么/不做什么/最坏亏多少/什么条件停机” | 非专业能独立读懂并复述 | 只有术语与收益宣传 |
+| 零真实订单 | 全仓静态扫描无券商路径；评估期无真实成交 | 看扫描结果与账本 | 任何真实下单 |
+| 合规与数据许可 | 不构成投资建议声明；数据许可/分发边界；无密钥 | 看合规清单 | 对外分发受限数据；承诺收益 |
+| 不放行部分功能 | 未通过项保持只读/关闭，不做“先上线一半” | 看配置开关默认值 | 未过门槛却启用加仓 |
+
+### 18.4 一页验收卡模板
+
+自本小节生效起（P1 验收开始；P0 作为历史设计阶段不追溯；已完成的历史任务不追溯），每个阶段结束时，Agent 必须在 `report/acceptance/P<n>/acceptance.md`（计划目录）生成一页卡；没有这张卡，看板**阶段里程碑**不得标 `DONE`。模板：
+
+```text
+阶段：P?
+结论：通过 / 不通过 / 未查
+对应版本：代码 <commit 或工作区哈希>；配置 <config_hash>；数据 <run_id / 快照哈希>
+机器闸：
+  <命令原文> → EXIT=0；<通过/失败条数>；<关键产物哈希>
+负对照：<故意注入的错误> → <被哪条判据抓住>；未抓住则本卡直接不通过
+非专业四问：
+  1 来源：能 / 不能 / 看不懂 —— 抽检的 3 个数字与出处
+  2 缺口：能 / 不能 / 看不懂 —— 看到的缺失/降级列表
+  3 越权：能 / 不能 / 看不懂 —— 界面与静态扫描结论
+  4 反证：能 / 不能 / 看不懂 —— 最强反方与失效条件
+签字项（仅业务选择；无则写“无”）：<仓位上限/风险承受/是否启用规则/是否上线 LLM>
+未查：<明确列出；未查不得折成通过>
+签字与日期：<用户>
+```
+
+规则：
+
+- “看不懂”必须改写成大白话后重交；不得催签。
+- “未查”不得留空，也不得写成“应该没问题”。
+- 卡片只引用本阶段同版本证据；旧读数必须标“旧读数，未重读”。
+
+### 18.5 与既有条款的关系
+
+- 本节是**阶段放行判据**，不替代 §16.4 DoR/DoD、§17 测试层、§12.7 晋升门槛；阶段开始前仍按 DoR 检查，冲突时取更严的一侧，安全边界永远优先。
+- 自本小节生效后的阶段放行：`DONE` 必须同时具备机器闸通过、四问全“能”、签字项完成、`acceptance.md` 存在并可复核。任一缺失，看板阶段里程碑保持 `PENDING/ISSUE`。
+- 阶段通过不等于策略有效或会盈利；任何收益声明仍受 §1.3、§21 与 §0.5 约束。
+- 验收失败时开 `ISSUE`，写明失败项、证据、修复计划；不得把未过项写成“已知问题”后放行。
+- 阈值/口径变更必须重开验收并保留旧卡；不得用新阈值解释旧结果。
+
+### 18.6 P1 数据验收程序化：不用人工人眼验证
+
+> 用户裁定（2026-10-23）：**数据问题以数据质量、连续性、一致性为标准，由程序标准化验收，不通过人工人眼验证。**
+> 本小节是对 §18.1 非专业人工闸与 §18.3 P1 表的**收窄替代**：只针对 P1 的数据类判据；
+> §18.1 的机器闸与签字闸不变，P2 及之后的界面类、业务类判断仍按 §18.1–18.5。
+
+**入口与判据**
+
+```text
+命令：/usr/bin/python3.10 src/main/python/com/sun/shensuan/gold/cli.py accept --stage P1 [--date YYYY-MM-DD]
+退出码：0 = verdict PASS；1 = verdict FAIL（存在判红）；2 = 参数/配置/质量报告缺失
+实现：`acceptance/p1.py`；判据阈值全部来自 `config/application.yaml` 的 `acceptance` 段
+```
+
+| 组 | 规则号 | 程序判什么 | 依据 |
+|---|---|---|---|
+| 一致性 | C1 | 8 个 PIT 列存在且非空；空表不得被当正常 | §6.5 |
+| 一致性 | C2 | `available_at >= as_of`；price/series/events 的日期为 `YYYY-MM-DD`，news 为带时区 ISO-8601 | §6.4 |
+| 一致性 | C3 | 主键唯一：按数据集 `key_columns` 声明判定（price/series 多为 `as_of`，news 为 `as_of+content_hash`，events 为 `event_id`），不得硬编码 | §6.6 |
+| 一致性 | C4 | 价格落在配置声明的 `price_min/price_max`（单位异常在这里抓） | §6.6 |
+| 一致性 | C5 | 行级 `quality` 必须能由同行 `flags` 复现，且只允许 `GREEN/DEGRADED` 两值；`flags` 按分号拆开，**除 `MANUAL` 之外**的任一标记都要求 `DEGRADED`，只有 `MANUAL` 的行要求 `GREEN`（§7.4：`MANUAL` 是披露，不是降级） | §6.5、§7.4 |
+| 一致性 | C6 | 数值列不得有空值；价格类列不得为 0/负；结构性 0 必须带 `ZERO_*`/`MISSING_*` 标记 | §2.1-5、§6.6 |
+| 一致性 | C7 | 坏行留档且必须有原因；同键留档后表内主值不得仍为空 | §6.6 |
+| 一致性 | S1 | 用当日最新原始快照重放规范化，与表内逐格按落盘格式一致 | §17.4 |
+| 连续性 | N1 | 日频源覆盖率 ≥ `min_weekday_coverage`；分子是**命中的应交易日数（唯一日，不是行数）**，分母按数据集 `calendar` 口径（`cn_sse` 官方交易日 / `weekday` 近似），读数必须带口径标签与「分母外日数」；**低于下限时只在质量报告已按同一标记 `LOW_COVERAGE` 披露且 quality 非 GREEN 时判 PASS（读数写「已披露」），其余情况一律 FAIL**；周频源走 N3；news/events 判 `SKIPPED` 并写原因 | §6.6、§6.6 覆盖率披露口径（2026-10-24 补） |
+| 连续性 | N2 | 核心源最近一行滞后 ≤ `max_stale_days`；非核心只披露；events 判 `SKIPPED`（没有新事件不等于源故障，陈旧度由质量闸按 `stale_days` 判） | §6.6 |
+| 连续性 | N3 | 周频源按行数/年落在 40–60 区间，不把周频误报成缺口；节奏由 `classify_cadence` 自判，events 不进入节奏判定 | §6.6 |
+| 质量 | Q1 | `_quality.json` 自洽：核心 GREEN、RED/降级/修订逐项列出、空表不得写 GREEN | §6.6 |
+| 质量 | Q2 | 原始快照只增不改：非基准日文件不得在本批次被写入 | §6.4 |
+| 质量 | Q3 | 验收与数据同版本：`_quality.json` 记录的 `config_hash` 必须等于本次验收加载的配置哈希；不一致或缺记录即 FAIL（§18.1 纪律 1）——改了判据/阈值不重跑 ingest，旧数据就属于另一个配置 | §18.1 |
+
+**判据口径**
+
+- 节奏由程序自己判定（相邻日期中位间隔 ≥5 天算周频），不抄报告字段：`_quality.json` 没有 `cadence_hint`，照抄会把 CFTC 这类周频源套上日频覆盖率下限，制造假判红。
+- N1 的分母来自 `data/trade_calendar.py`：声明 `cn_sse` 但日历未落盘/sha256 不符/内容为空时回落工作日近似，并把原因写进口径标签（`weekday_approx(cn_sse 日历未落盘)`）；回落是**更保守**，不是放行，也不得冒充官方交易日口径。
+- “最新原始快照”按文件修改时间取，不按文件名排序：同日多批次时文件名序会取到旧批次，导致 S1 假判红。
+- 浮点对表按落盘格式（`store.format_cell`）逐格比，不用二进制相等：`648.54/100` 与 `6.4854` 是同一个数，二进制比较会把它判成不一致。
+- `SKIPPED` 只表示输入确实不存在（如 GPR 原始快照是 `.xls`、数据集无价格区间），必须写原因；`SKIPPED` 不计入通过，也不得冒充 `PASS`。
+- 每条判据在 `unit/acceptance/test_p1.py` 里都有放行格与判红格；判红格一律动被试数据（注入空值、重复键、越界价、改写历史快照、篡改表内值），不动判据本身。
+- 判据的“放行”一格必须用真实世界形状的数据（如新闻同一时刻多条不同 `content_hash` 放行），否则会把正常世界状态判成缺陷——那也是验收失效。本轮实跑又抓到三格同一类失效：按 `as_of` 要求事件日历唯一（10-19 确实有两个不同事件）、把只有 `MANUAL` 的行当“降级未披露”、把事件流套上周期节奏判定（`geo_events` 5 行被判 38 行/年）。判据必须与 §6.5/§7.4/§8.4 的口径一致，不能比规范更严。
+- N1 的分子是「命中的应交易日数（唯一日）」，不是行数：快讯一天几十条会把覆盖率推到几千percent，日历外的日期还会把结果抬过 100%；读数必须并列 `唯一日/应交易日/命中/覆盖率/口径/分母外日`，并与 `_quality.json` 的 `weekday_gaps` 同算法（两处不同口径会让同一源有两个覆盖率）。
+- news/events 在 N1/N2/N3 上一律 `SKIPPED` 并写原因：事件流没有“每天该有一条”的概念，`GEO_EVENT_SEVERITY=0` 只表示未识别到事件（§7.3），不等于断供、也不等于无风险。
+- Q3 是 §18.1 纪律 1 的程序化：判据、阈值、`calendar` 声明任何一次改动都会改 `config_hash`，旧 `_quality.json` 立刻与新验收判红，逼着重跑 ingest 再验收，不许拿旧数据配新尺子出“通过”。
+
+**验收卡与签字**
+
+- P1 验收卡的“机器闸”一节直接引用 `accept` 的输出（`verdict`、`counts`、逐条 `rule_id` 与读数），不得以“我看了 CSV/截图/报告”作为通过依据。
+- §18.2 四问在 P1 的落法：第 1 问（来源）由 C1/C2/S1 证；第 2 问（缺口）由 C1/C6/C7/N1/N2/N3/Q1 证；第 3 问（越权）由 §18.3 P1 安全边界静态扫描证；第 4 问（反证）由数据结论的失效口径证（`REVISED_ONLY` 不得晋升、空日历不等于无风险、`PROVISIONAL` 不得进事实包、零成交只当收盘价）。用户不需要目视数字，只需确认卡上的判据读数与失效口径可理解。
+- `verdict=FAIL` 时看板 P1 里程碑保持 `PENDING/ISSUE`，不得签“通过”；每条 FAIL 要么修数据/代码后重跑，要么由用户显式改变阈值或口径并按 §18.5 重开验收。
+- 用户仍要签字的只剩业务/口径选择（不是数据目视）：例如“非核心源 RED 是否压全局”“事件日历为空是否接受”“覆盖率下限取多少”。
+
+**与 `doctor` 的分工（2026-10-25 补）**：`accept` 判“这批数据是否满足 P1 基线（质量/连续性/一致性）”；`doctor` 判“已知缺陷如何安全处置、哪些能力必须封锁”（§6.9）。两者回答不同问题：`doctor` 的 `NEEDS_HUMAN` **不会**把 `accept` 的 `verdict=PASS` 改成 FAIL，也不得被用来绕过 §18.6 的判据；反过来，`accept=PASS` 也不表示 `doctor=CLEAN`。P1 放行仍以 `accept` + §18.1 三层闸为准，但验收卡必须同时引用 `doctor` 的封锁清单（当前至少包括 WTI/COMEX 零流量、SPDR 低覆盖、GPR 无 vintage、事件 severity 未复核），不得只报 `accept=PASS` 而隐去下游能力限制。
 
 ---
 
@@ -1717,6 +2250,8 @@ python src/main/python/com/sun/shensuan/gold/cli.py ui
 ```
 
 以上命令**尚未实现**；P1 起以实际入口为准，本文件不声称可运行。
+
+> 现状更正（2026-10-25）：上面“尚未实现”是 2026-10-19 的旧句，现读已过期；下面按当前入口列出状态，旧句保留作历史、不就地改写。`preflight/ingest/normalize/status/coverage/rate/calendar/extract-events/list-datasets/validate-manual/accept/doctor` 已实现；`factpack/decide/committee/report/paper/reconcile/ui` 仍未实现。已实现命令的参数以 `cli.py --help` 为准。
 
 ### 19.3 cron 示例（计划）
 
@@ -1826,6 +2361,8 @@ docker run --rm --network none -v "$PWD/data:/app/data:ro" gold-system:dev pytes
 - 不安装全局依赖；不修改 `.env`/CI/风控阈值，除非任务明确。
 - 不把仓库内容/用户数据上传到第三方；不调用外部 LLM 处理敏感数据。
 - 非正式代码先放 test 树验证，达标后再迁入 main（§15.13）。
+- 新增/改动代码必须同批补齐中文 docstring（`__init__.py` 除外）；新增/改动配置必须同批补齐中文 YAML 注释；两者都要同批回写 `PROJECT.md`（§15.5、§15.6、§15.14）。
+- 新增测试放进 `unit/contract/integration/architecture` 对应层，不在测试根目录平铺（§0.4 第 19 条）。
 - 发现与任务无关的 bug：开 `ISSUE`，不夹带修复。
 
 **完成后：**
@@ -1902,7 +2439,7 @@ docker run --rm --network none -v "$PWD/data:/app/data:ro" gold-system:dev pytes
 | 项 | 规则 |
 |---|---|
 | 运行环境 | `~/miniconda3/envs/rdagent`；conda 路径可配置 |
-| 模型 | 默认 `qwen3.5:9b`；备选 `qwen3.5:4b`/`qwen2.5:7b`/`deepseek-r1:8b`；记录模型 digest；单实例 |
+| 模型 | 默认 `deepseek-r1:8b`；备选 `qwen3.5:4b`/`qwen2.5:7b`/`qwen3.5:9b`；记录模型 digest；单实例 |
 | 沙箱 | Docker 容器；无网络/无券商/无真实账户 |
 | 产出 | 因子假设、表达式、沙箱回测结果；写入隔离目录 |
 | 输入 | 只读行情/特征；不得读 `data/live`、密钥、个人数据 |
@@ -1989,7 +2526,7 @@ docker run --rm --network none -v "$PWD/data:/app/data:ro" gold-system:dev pytes
 ### 21.1 数据风险
 
 - TIPS 实际利率、DXY、官方 AU 指数无稳定直连；代理可能失真，必须标 `DEGRADED/PROXY`。
-- COMEX/WTI 末行零持仓；不能当真实流动性。
+- COMEX/WTI 全部行零持仓（2026-10-19 快照：COMEX 2,589/2,589、WTI 7,689/7,689 行 volume 与 open_interest 均为 0）；不能当真实流动性。
 - AU0 非官方指数；换月跳空；全历史待实测。
 - GPR 有修订/发布滞后；无 vintage 不得用于晋升。
 - GDELT 429 限流；快讯噪声/重复/空行。
@@ -2008,6 +2545,7 @@ docker run --rm --network none -v "$PWD/data:/app/data:ro" gold-system:dev pytes
 
 - 逆向叠加/地缘规则可能样本外失效；默认只减不加。
 - 参数、窗口、阈值多→过拟合；必须预注册、walk-forward、PBO、DSR、敏感性。
+- 多指标组合、多分位阈值、多持有期会放大多重检验风险；必须报告 `n_trials` 并做 FDR/Bonferroni，禁止只报最优组合。
 - 单次战争/制裁事件不能证明规则。
 - 不因短期表现改判据。
 
@@ -2098,11 +2636,15 @@ docker run --rm --network none -v "$PWD/data:/app/data:ro" gold-system:dev pytes
 | `GPRD_THREAT` | GPR 的“威胁”分量 |
 | vintage | 某一时点真实可见的数据版本 |
 | `REVISED_ONLY` | 只有修订后历史、无 vintage，不能用于晋升 |
+| `PROVISIONAL` | 抓取时点早于数据可见时点的盘中快照；不能进入事实包，等收盘后重抓 |
 | `DEGRADED` | 数据可用但质量不足，禁止加仓 |
 | `MISSING` | 没有数据，不得填 0 |
 | `PROXY` | 代理指标，必须披露构造 |
 | `UNFILLED` | 未成交/价格带失效 |
 | `SHADOW` | 只做纸面评估，不影响人工清单 |
+| 逆向格言 | “别人贪婪时恐惧，别人恐惧时贪婪”：两半都展示；v1 只允许前一半对应的降险，后一半对应的加仓须先过 §12.7 晋升门槛 |
+| 高低点交叉/重叠 | 两个或更多独立指标在相近时间进入同方向极端区；用于统计买入低点/卖出高点命中率，不直接等于交易信号 |
+| 命中率 | 事件后价格按预期方向达到条件的比例；必须带 N、置信区间、成本口径与基准对照 |
 
 ---
 
@@ -2281,6 +2823,16 @@ docker run --rm --network none -v "$PWD/data:/app/data:ro" gold-system:dev pytes
 | 版本 | 日期 | 变更 |
 |---|---|---|
 | v0.1 | 2026-10-19 | 首版设计蓝图：核心+卫星、1+2、9 角色委员会、地缘三层、PIT/哈希台账、P0–P8 路线图、Agent 行为规范 |
+| v0.2 | 2026-10-21 | 状态更新为 P1 数据层实现完成、等待用户验收；补代码/配置注释、测试分层、结构索引与 P1 质量修复的执行口径 |
+| v0.3 | 2026-10-21 | README 新增第 19 条逆向格言统计要求；新增 §8.4.2 多指标高低点交叉/重叠统计口径；同步 §12.6/12.7/12.10、§17.2/17.4、§18、§21.3、§22 与 19 条映射 |
+| v0.4 | 2026-10-23 | §18 新增 18.1–18.5：三层闸、非专业四问、P0–P8 分阶段验收标准、一页验收卡与判定纪律；明确阶段通过不等于策略有效 |
+| v0.5 | 2026-10-23 | P1 验收项 3/5 修复：price/series/events 的 `date` 与 `as_of` 统一 `YYYY-MM-DD`；`coverage` 新增 `continuity` 工作日缺口摘要（日频 <80% warning，周频不误报）；§6.4/§6.6/§18.3 同步 |
+| v0.6 | 2026-10-23 | §5.2 新增汇率同日兜底条款（折算价优先、中间价兜底、同日不混算、差异 >0.05% 标 `DEGRADED`）；`timeutil` 新增 `same_day_0915`；`usdcny_mid` 当日 09:15 可见；新增 `data/rates.py::select_usdcny` 与 CLI `rate` 探针 |
+| v0.7 | 2026-10-23 | §18.6 新增 P1 数据验收程序化（用户裁定：数据问题按质量/连续性/一致性由程序判，不靠人眼）：`cli.py accept --stage P1` 入口、退出码 0/1/2、C1–C7+S1/N1–N3/Q1–Q2 共 13 条判据、阈值来自 `application.yaml` 的 `acceptance` 段；验收卡机器闸一节必须引用 `accept` 输出；`verdict=FAIL` 时 P1 里程碑不得标 `DONE` |
+| v0.8 | 2026-10-23 | 接入上交所交易日历：§6.4 新增参考层 `data/reference/`（日历正文 + meta：来源/URL/抓取时间/行数/sha256）；§6.6 缺口分母按数据集 `calendar` 口径（`cn_sse` 官方交易日 / `weekday` 近似），作废「暂无交易日历」前提；新增 `data/trade_calendar.py` 与 CLI `calendar [--refresh]`；§18.6 N1 判据与验收卡读数必须带口径标签，日历不可用时回落近似并披露原因 |
+| v0.9 | 2026-10-23 | §6.2 补「事件日历的第二个来源」：`data/news_events.py` 从快讯标题做确定性关键词抽取（规则表在 `strategy.yaml` 的 `geo.news_events`，`rules_version` 内嵌进 `event_id`，默认 dry-run，`--write` 才落盘，人工行不被覆盖）；`cli.py extract-events` 入口；§18.6 判据 13→14 条（新增 Q3 验收与数据同版本），并收紧三处被实跑抓出的尺子口径——C3 按 `key_columns` 判唯一、C5 中 `MANUAL` 只披露不降档、N1 分子按唯一日且 news/events 判 `SKIPPED` |
+| v1.0 | 2026-10-24 | 用户裁定三条数据口径（全部取“乙”）：①`cftc_gold` 两行多空净仓全 0 → series 分支按 `drop_all_zero_rows` 整行剔除（§6.6 补，默认关闭，GPR 的 0 是真实值）；②`shfe_au0` 618 行 `settlement=0` → price 分支按 `positive_columns` 整行剔除（§6.6 补）；③`spdr_gold` 覆盖率 50.5% → 标 `LOW_COVERAGE` 降 YELLOW，P2 的 SPDR 流量只展示不进分数。配套：规范化层新增「剔除即从主表移除」（`NormalizeResult.rejected` → `merge(removed=…)`）与「完整快照整表替换」（`authoritative_snapshot`，用于事件日历），修复被剔除行从历史并集复活；`geo.news_events` 新增人工复核排除表 `review_exclusions`（按 `content_hash` 点名，不改 `rules_version`）；§18.6 的 N1 增加「已披露才放行」一格。P1 程序化验收 `verdict=PASS`（139/0/19） |
+| v1.1 | 2026-10-25 | 新增 §6.9 数据问题自动识别与安全处置：`data/remediation.py` 读 `_quality.json`/规范化表/`rejected/`/原始快照/手工事件表，产出 `_remediation.json`（问题清单 + 每数据集 `display/feature/score/promotion_eligible`、`price_only`、禁读字段/特征/晋升、日历口径与下界标记）；`cli.py doctor [--write]` 退出码 0/1/2；`ingest` 自动落盘并把摘要写进 `_quality.json`，`coverage` 附带摘要。三种状态 `AUTO_RESOLVED/CONTAINED/NEEDS_HUMAN`；只隔离/降能力/标注/阻断晋升，不修源、不补值、不猜 severity。实测 12 条问题：2 自动消解 / 9 已封锁 / 1 待人工复核（4 条 `XGE-` 事件 severity）；P1 `accept` 判决不变 |
 
 ---
 

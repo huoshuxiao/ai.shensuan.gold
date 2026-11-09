@@ -1,0 +1,381 @@
+# 数据源注册表：每个数据集一段；加载时由 config/loader.py 做 schema 与跨字段校验。
+# 规则依据：AGENTS.md §6（数据层）、§6.5（PIT 字段）、§6.6（质量闸）、§6.7（降级顺序）。
+# 修改任一取值都会改变 config_hash；必须同批更新 CHANGELOG、相关测试与看板。
+#
+# 公共字段（各数据集按需覆盖）：
+#   enabled             是否参与日链；false = 保留定义但不抓取
+#   source              数据源代码名，写入 PIT 的 source 字段
+#   adapter             data/adapters 中的注册名
+#   symbol              数据源内部代码/参数（如 sh518880、GC、Au99.99）
+#   kind                price / series / news / events，决定规范化分支
+#   core                是否核心序列；核心未达 GREEN 会把质量层全局压成 DEGRADED
+#   required_columns    规范化后必须存在的列；缺列即契约失败
+#   timezone            源数据时区；统一转 Asia/Shanghai
+#   calendar            连续性判据的分母口径：cn_sse = 上交所官方交易日（境内源用）；
+#                       weekday = 周一至周五近似（外汇报价日、美国交易日没有官方直连
+#                       日历，只能近似，且读数必须写明「近似」）。取值见
+#                       common/timeutil.CALENDAR_BASES；§6.6 工作日缺口
+#   available_at_rule   PIT 可见时点规则，取值见 common/timeutil.AVAILABLE_AT_RULES
+#   stale_days          超过该天数未更新标 STALE；核心序列转 DEGRADED
+#   key_columns         去重/合并主键；必须 ⊆ required_columns ∪ {as_of}
+#   history_start       首次抓取起点；不得早于源实际可用范围
+#   price_min/max       价格合法区间；price_min 必须 > 0（§6.6 价格<=0 判坏行）
+#   zero_fields         真实 0 标 ZERO_<COL>、缺失标 MISSING_<COL> 的字段；缺失保持空值不填 0
+#   revised_only        true = 无 vintage、只有修订后序列，不得用于晋升
+#   manual_path         手工 CSV 相对 data/manual 的路径
+#   options             适配器私有参数；键名由适配器解释
+schema_version: "1"   # 配置结构版本；schema 变更时递增
+
+# 以下按数据集注册；每个条目至少写一行用途/口径说明。
+datasets:
+  # 主交易标的：沪深黄金 ETF，100 份整手、T+0；进入默认清单（§5.1、§5.4）。
+  etf_518880:
+    enabled: true
+    source: akshare.fund_etf_hist_sina
+    adapter: etf
+    symbol: sh518880
+    kind: price
+    core: true
+    required_columns: [date, open, high, low, close, volume, amount]
+    timezone: Asia/Shanghai
+    calendar: cn_sse                   # 境内 ETF：缺口按上交所交易日算，节假日不算缺口
+    available_at_rule: same_day_1530   # 当日 15:30 收盘后可见
+    stale_days: 4                      # 超过 4 天未更新标 STALE
+    key_columns: [as_of]
+    history_start: "2013-07-29"
+    price_min: 0.5
+    price_max: 20.0
+    zero_fields: [volume]              # 零成交量保留但标 DEGRADED
+
+  # 备用 ETF：流动性与跟踪误差待实测；不作为默认主标的。
+  etf_159934:
+    enabled: true
+    source: akshare.fund_etf_hist_sina
+    adapter: etf
+    symbol: sz159934
+    kind: price
+    core: false
+    required_columns: [date, open, high, low, close, volume, amount]
+    timezone: Asia/Shanghai
+    calendar: cn_sse                   # 境内 ETF 备用标的：同样按上交所交易日
+    available_at_rule: same_day_1530
+    stale_days: 4
+    key_columns: [as_of]
+    history_start: "2013-07-29"
+    price_min: 0.5
+    price_max: 20.0
+    zero_fields: [volume]
+
+  # 上海金现货 Au99.99：CNY/g；历史有 OHLC 不自洽行，剔除并留档。
+  sge_au9999:
+    enabled: true
+    source: akshare.spot_hist_sge
+    adapter: sge
+    symbol: Au99.99
+    kind: price
+    core: true
+    required_columns: [date, open, high, low, close]
+    timezone: Asia/Shanghai
+    calendar: cn_sse                   # 上金所现货：休市口径按上交所交易日近似
+    available_at_rule: same_day_1530
+    stale_days: 4
+    key_columns: [as_of]
+    history_start: "2016-12-19"
+    price_min: 100.0
+    price_max: 3000.0
+    zero_fields: []
+
+  # COMEX 黄金研究基准：USD/oz；源长期 volume/open_interest=0，只当收盘价并标 DEGRADED。
+  # 不设为核心，避免已知源缺陷把每日全局质量永久压成 DEGRADED。
+  comex_gc:
+    enabled: true
+    source: akshare.futures_foreign_hist
+    adapter: foreign_futures
+    symbol: GC
+    kind: price
+    core: false
+    required_columns: [date, open, high, low, close]
+    timezone: Asia/Shanghai
+    available_at_rule: next_day_0600   # 次日 06:00 可见
+    stale_days: 4
+    key_columns: [as_of]
+    history_start: "2016-10-19"
+    price_min: 500.0
+    price_max: 10000.0
+    zero_fields: [volume, open_interest]
+
+  # 沪金主力连续 AU0：CNY/g；非官方 AU 指数，换月有跳空；仅研究展示（§5.1）。
+  shfe_au0:
+    enabled: true
+    source: akshare.futures_main_sina
+    adapter: au0
+    symbol: AU0
+    kind: price
+    core: true
+    required_columns: [date, open, high, low, close, volume, open_interest, settlement]
+    timezone: Asia/Shanghai
+    calendar: cn_sse                   # 上期所期货：休市与上交所大体一致，按 SSE 日历近似
+    available_at_rule: same_day_1530
+    stale_days: 4
+    key_columns: [as_of]
+    history_start: "1990-01-01"
+    price_min: 100.0
+    price_max: 3000.0
+    zero_fields: [volume, open_interest]
+    # 结算价必须为正：源在 2008-01-09..2024-09-25 有 618 行 settlement=0（缺值被填 0），
+    # 整行剔除并留档（NONPOSITIVE_SETTLEMENT），不猜结算价（2026-10-24，D3 乙）。
+    positive_columns: [settlement]
+
+  # WTI 原油：用于地缘风险确认，只当收盘价；零成交/零持仓标 DEGRADED（§6.1）。
+  wti_cl:
+    enabled: true
+    source: akshare.futures_foreign_hist
+    adapter: foreign_futures
+    symbol: CL
+    kind: price
+    core: false
+    required_columns: [date, open, high, low, close]
+    timezone: Asia/Shanghai
+    available_at_rule: next_day_0600
+    stale_days: 7
+    key_columns: [as_of]
+    history_start: "1996-10-21"
+    # 下界必须为正：AGENTS §6.6 把 price<=0 视为坏行，负下界会让质量闸漏判。
+    price_min: 0.01
+    price_max: 500.0
+    zero_fields: [volume, open_interest]
+
+  # SPDR 黄金 ETF 持仓：流量指标；日频，按发布日做 PIT。
+  spdr_gold:
+    enabled: true
+    source: akshare.macro_cons_gold
+    adapter: spdr
+    kind: series
+    core: false
+    required_columns: [date, holdings_tonnes]
+    timezone: Asia/Shanghai
+    available_at_rule: next_day_0600
+    stale_days: 7
+    key_columns: [as_of]
+    history_start: "2004-11-19"
+    zero_fields: []
+    # 该源本身隔日/隔多日给一条（全历史覆盖率约 50%，近 5 年 68%）：覆盖率低于
+    # acceptance.min_weekday_coverage 时自动标 LOW_COVERAGE 并降为 YELLOW（披露口径，
+    # 2026-10-24 D4 乙）。P2 的 FLOW_SPDR_CHG_* 只能展示、不得进综合分数。
+
+  # 美国 10 年期名义收益率：无 TIPS 实际利率；盘前空值按缺失处理（§6.1）。
+  us10y:
+    enabled: true
+    source: akshare.bond_zh_us_rate
+    adapter: us10y_bond
+    kind: series
+    core: false
+    required_columns: [date, us10y]
+    timezone: Asia/Shanghai
+    available_at_rule: next_day_0600
+    stale_days: 7
+    key_columns: [as_of]
+    history_start: "2021-10-01"
+    zero_fields: []
+
+  # USD/CNY：BOC 每 100 外币价必须除以 100；固定「中行折算价」，不混用中间价（§5.2）。
+  usdcny:
+    enabled: true
+    source: akshare.currency_boc_sina
+    adapter: boc_usdcny
+    symbol: 美元
+    kind: series
+    core: false
+    required_columns: [date, usdcny]
+    timezone: Asia/Shanghai
+    available_at_rule: same_day_1800   # 当日 18:00 可见
+    stale_days: 7
+    key_columns: [as_of]
+    history_start: "2021-10-01"
+    zero_fields: []
+    options:
+      # 固定使用同一列，不与央行中间价混用；该列按每 100 外币计价，代码里除以 100
+      price_column: 中行折算价
+
+  # 人民币汇率中间价（SAFE，1994 起）：给跨市场价差提供长历史汇率口径。
+  # 与上面的 usdcny（BOC 中行折算价，2021-10 起）是两套报价：每次特征只能选
+  # 一条序列，禁止把两条拼成一条；事实包必须写清用的是哪一条（§5.2）。
+  # 同日兜底（§5.2 兜底条款）：当日折算价不可用（缺失/PROVISIONAL/接口失败）
+  # 时用中间价，同日绝不混算；两条同日差异 >0.05% 标 DEGRADED 并披露。
+  usdcny_mid:
+    enabled: true
+    source: safe.rmb_mid
+    adapter: safe_usdcny
+    kind: series
+    core: false
+    required_columns: [date, usdcny]
+    timezone: Asia/Shanghai
+    available_at_rule: same_day_0915   # 中间价当日 09:15 左右发布、当天固定；09:15 后抓取即最终值（观察 3–5 天，若当日行缺失则降回 same_day_1530）
+    stale_days: 7
+    key_columns: [as_of]
+    history_start: "1994-01-01"
+    zero_fields: []
+
+  # CFTC 黄金持仓：周频；available_at=as_of+3d 06:00，按发布日做 PIT（§6.1）。
+  cftc_gold:
+    enabled: true
+    source: akshare.macro_usa_cftc_c_holding
+    adapter: cftc_gold
+    kind: series
+    core: false
+    required_columns: [date, net, long, short]
+    timezone: Asia/Shanghai
+    available_at_rule: as_of_plus_3d   # 报告日后第 3 天 06:00 可见
+    stale_days: 10
+    key_columns: [as_of]
+    history_start: "1986-01-15"
+    zero_fields: []
+    # 多空净仓三列同时为 0 = 源没给这一周的值（1997-12-19、2003-02-18 两行），
+    # 整行剔除并留档（ALL_ZERO_IN_REQUIRED）；默认关闭，只有需要它的数据集才开
+    # （2026-10-24，D1 乙）。GPR 的 gprd=0 是真实平静日，不得照此处理。
+    drop_all_zero_rows: true
+
+  # GPR 地缘政治风险指数：有修订、无 vintage；全部标 REVISED_ONLY，不得用于 H-GEO 晋升（§12.8）。
+  gpr:
+    enabled: true
+    source: matteoiacoviello.gpr_daily_recent
+    adapter: gpr
+    kind: series
+    core: false
+    required_columns: [date, gprd]
+    timezone: Asia/Shanghai
+    available_at_rule: fetched_at      # 以实际抓取时刻作为可见时点
+    stale_days: 14
+    key_columns: [as_of]
+    history_start: "1985-01-01"
+    zero_fields: []
+    revised_only: true                 # 只有修订后序列，无 vintage
+    options:
+      url: "https://www.matteoiacoviello.com/gpr_files/data_gpr_daily_recent.xls"
+      download_timeout_s: 600          # 大文件下载超时，单位：秒
+
+  # 财联社快讯：只做确定性关键词/事件抽取；原文 v1 不进 LLM（§6.2）。
+  news_cls:
+    enabled: true
+    source: akshare.stock_info_global_cls
+    adapter: news_cls
+    symbol: 全部
+    kind: news
+    core: false
+    required_columns: [published_at, title, content_hash]
+    timezone: Asia/Shanghai
+    available_at_rule: explicit        # 使用记录自带的 available_at
+    stale_days: 2
+    key_columns: [as_of, content_hash] # 同一时点按内容哈希去重
+    zero_fields: []
+
+  # 新浪财经快讯：去重、时限、来源留痕；原文不进 LLM。
+  news_sina:
+    enabled: true
+    source: akshare.stock_info_global_sina
+    adapter: news_sina
+    kind: news
+    core: false
+    required_columns: [published_at, title, content_hash]
+    timezone: Asia/Shanghai
+    available_at_rule: explicit
+    stale_days: 2
+    key_columns: [as_of, content_hash]
+    zero_fields: []
+
+  # SHMET 贵金属快讯：有效参数为「贵金属」；原文不进 LLM。
+  news_shmet:
+    enabled: true
+    source: akshare.futures_news_shmet
+    adapter: news_shmet
+    symbol: 贵金属
+    kind: news
+    core: false
+    required_columns: [published_at, title, content_hash]
+    timezone: Asia/Shanghai
+    available_at_rule: explicit
+    stale_days: 2
+    key_columns: [as_of, content_hash]
+    zero_fields: []
+
+  # GDELT DOC API：可选增强；429/超时即降级，默认关闭，不作核心依赖（§6.2）。
+  gdelt_doc:
+    enabled: false
+    source: gdelt.v2.doc
+    adapter: gdelt
+    kind: news
+    core: false
+    required_columns: [published_at, title, content_hash]
+    timezone: Asia/Shanghai
+    available_at_rule: explicit
+    stale_days: 2
+    key_columns: [as_of, content_hash]
+    zero_fields: []
+    options:
+      url: "https://api.gdeltproject.org/api/v2/doc/doc"
+      query: "gold OR bullion"
+      maxrecords: 250                  # 单次请求上限，单位：条
+
+  # 手工地缘事件日历：severity 1/2/3 必须人工复核；空表 = 未登记，不等于无风险（§6.2）。
+  geo_events:
+    enabled: true
+    source: manual.geo_events
+    adapter: manual_geo_events
+    kind: events
+    core: false
+    required_columns: [event_id, date, type, severity, region, source_url, available_at]
+    timezone: Asia/Shanghai
+    available_at_rule: explicit
+    stale_days: 90
+    key_columns: [event_id]
+    # 事件日历是「整份清单」：手工/抽取每次重写全表，所以规范化层按完整快照替换
+    # （不做历史并集，否则被删掉的误报会从旧行里复活）。历史完整性由源文件负责
+    # ——extract-events 只会保留快讯窗口内的事件，这是已知边界（看板 R-005）。
+    authoritative_snapshot: true
+    manual_path: geo_events.csv
+    zero_fields: []
+
+  # 手工 TIPS 10Y：无稳定直连；未启用，P2 前补齐并标 MANUAL。
+  manual_tips10y:
+    enabled: false
+    source: manual.tips10y
+    adapter: manual_series
+    kind: series
+    core: false
+    required_columns: [date, value]
+    timezone: Asia/Shanghai
+    available_at_rule: explicit
+    stale_days: 30
+    key_columns: [as_of]
+    manual_path: tips10y.csv
+    zero_fields: []
+
+  # 手工官方 AU 指数：无稳定直连；未启用。
+  manual_au_index:
+    enabled: false
+    source: manual.au_index
+    adapter: manual_series
+    kind: series
+    core: false
+    required_columns: [date, value]
+    timezone: Asia/Shanghai
+    available_at_rule: explicit
+    stale_days: 7
+    key_columns: [as_of]
+    manual_path: au_index.csv
+    zero_fields: []
+
+  # 手工 GLD 持仓/折溢价：可选研究；未启用。
+  manual_gld_holdings:
+    enabled: false
+    source: manual.gld_holdings
+    adapter: manual_series
+    kind: series
+    core: false
+    required_columns: [date, value]
+    timezone: Asia/Shanghai
+    available_at_rule: explicit
+    stale_days: 7
+    key_columns: [as_of]
+    manual_path: gld_holdings.csv
+    zero_fields: []

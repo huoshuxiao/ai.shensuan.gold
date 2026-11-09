@@ -1,0 +1,153 @@
+# 策略参数：P2 起生效；P1 只加载、校验、计入 config_hash，不执行任何计算。
+# 规则依据：AGENTS.md §7（特征）、§8（状态/仓位带/逆向）、§9（风控）、§12（回测）。
+# 所有阈值必须在此配置，代码不得写魔法数（§8.2、§15.5）。
+# 口径：权重/比例为 0–1 小数；仓位带 low/high 为百分数 0–100；pp 为百分点。
+schema_version: "1"           # 配置结构版本；schema 变更时递增
+
+# 七组特征权重：初始设计起点，P2/P3 必须用回测校准，不得当作已验证结论（§8.2）。
+# 缺失组按剩余权重重新归一；缺失超过 2 组 → DEGRADED。
+weights:
+  trend: 0.30                 # 趋势：MA200/MA60 斜率与价格位置
+  momentum: 0.15              # 动量：1/5/20/60 日收益、RSI
+  volatility: 0.15            # 波动率：RV20/RV60、波动分位
+  cross_market: 0.15          # 跨市场：内外价差、汇率调整后的 GC/SGE
+  flows: 0.10                 # 流量/持仓：CFTC 净仓分位、SPDR 4 周流量
+  macro: 0.10                 # 宏观/汇率：名义利率、TIPS 代理、DXY 代理
+  geopolitics: 0.05           # 地缘政治/避险：GEO_SCORE；H-GEO 未通过前只读/只减
+
+# 综合分数 → 卫星仓基础区间 [L,H]，单位 %（§8.3）。
+# 按 max_score 升序匹配，命中第一个 score <= max_score 的区间。
+# 不变量：0 <= low <= high <= 30；违反即停止决策并开 ISSUE。
+band_map:
+  - max_score: -60            # score <= -60
+    low: 0.0
+    high: 5.0
+  - max_score: -20            # -60 < score <= -20
+    low: 5.0
+    high: 10.0
+  - max_score: 20             # -20 < score <= 20
+    low: 10.0
+    high: 20.0
+  - max_score: 60             # 20 < score <= 60
+    low: 20.0
+    high: 25.0
+  - max_score: 100            # 60 < score <= 100
+    low: 25.0
+    high: 30.0
+
+# 市场状态判据（§8.1）；窗口单位为交易日，分位阈值为百分数。
+# 进入/退出使用不同阈值时由 hysteresis.band 控制，避免每天来回切换。
+regime:
+  trend:
+    ma_long: 200              # 长期均线窗口，单位：交易日
+    ma_short: 60              # 短期均线窗口，单位：交易日
+    slope_window: 20          # 斜率计算窗口，单位：交易日
+  volatility:
+    rv_window: 20             # 已实现波动窗口，单位：交易日
+    low_pct: 30               # 低波动分位阈值，单位：%
+    high_pct: 70              # 高波动分位阈值，单位：%
+    crisis_pct: 90            # 危机分位阈值，单位：%
+  hysteresis:
+    band: 0.05                # 滞回带宽，单位：比例（5 个百分点）
+  geo_shock:
+    gpr_z_threshold: 1.5      # GPR 1 年 z 分阈值
+    rv_pct_threshold: 80      # 黄金 RV20 分位阈值，单位：%
+
+# 风控参数（§9.4–§9.7）；风险减仓方向不受换手/噪声带限制。
+risk:
+  target_vol_annual: 0.12     # 目标年化波动，单位：比例（12%）
+  vol_min_days: 60            # 波动率估计最少样本，单位：交易日；不足则 DEGRADED
+  drawdown_levels:            # 回撤分级；threshold 为相对高水位的比例
+    - threshold: 0.10         # 回撤 >=10%
+      action: cap_half        # 卫星上限减半，禁止加仓
+    - threshold: 0.15         # 回撤 >=15%
+      action: satellite_zero_core_60 # 卫星降至 0，核心降至 60%
+    - threshold: 0.20         # 回撤 >=20%
+      action: halt            # 熔断，人工签字后才恢复
+  turnover:
+    weekly_max_pp: 10         # 周度目标变动上限，单位：百分点
+    noise_band_pp: 3          # 小于该幅度的变动不执行，单位：百分点
+    monthly_max_ratio: 0.40   # 卫星月度换手上限，单位：比例
+  adv_limit: 0.05             # 单笔订单 <= 20 日日均成交额的 5%，单位：比例
+
+# 交易成本：回测与人工清单共用，默认取保守值（§9.7、§12.3）。
+# bps 为万分之一；min_commission_cny 单位：人民币元。
+costs:
+  commission_bps: 2.5         # 佣金，单位：bps
+  slippage_bps: 5.0           # 滑点，单位：bps
+  min_commission_cny: 5.0     # 最低佣金，单位：元
+
+# 逆向叠加：v1 默认关闭加仓方向；启用必须先过预注册样本外门槛（§8.4、§12.7）。
+contrarian:
+  enabled: false              # 未通过门槛前只读/只减
+  min_signals: 2              # 至少 2 个独立信号同时极端
+  max_adjust_pp: 10           # 单次调整上限，单位：百分点
+  promote_requires_preregistration: true # 任何加仓方向必须先预注册
+
+# 地缘参数：GPR 窗口、事件严重度上限、分数裁剪（§7.3、§11.9）。
+# 新闻原文 v1 不进 LLM；只使用结构化抽取结果。
+geo:
+  gpr_z_window: 252           # GPR 1 年 z 分窗口，单位：交易日
+  event_severity_max: 3       # 事件严重度上限：1 局部 / 2 区域 / 3 全球
+  score_clip: 100             # GEO_SCORE 裁剪到 [-100, +100]
+  news_llm_enabled: false     # 禁止把新闻原文喂给 LLM
+
+  # 新闻→地缘事件抽取规则（§6.2 硬规则：必须有 rules_version 与回归夹具）。
+  # 生效阶段：P1 产出事件日历输入行；P2 才把 GEO_EVENT_SEVERITY 送进事实包。
+  # 只在快讯**标题**上做子串匹配，不读正文、不调用 LLM、不访问网络。
+  # severity 由关键词表自动赋值，未经人工复核不得作为加仓依据（§7.3、§8.5）；
+  # 3 级（全球战争/大国直接冲突）一律要人工复核。
+  # 改任何关键词/严重度/窗口都必须同批递增 rules_version 并重跑历史抽取对表；
+  # event_id 内嵌 rules_version，旧行会整批改号，便于逐日对表。
+  news_events:
+    rules_version: "ge-2"     # ge-1→ge-2：加 excludes（修「黄金爆炸性上涨」被抽成爆炸事件）、
+                              # 去掉 罢工（矿业/劳资属于供给面，不是地缘避险事件）
+    min_title_chars: 8        # 短于此长度的标题视为噪声（单位：字符），直接跳过
+    dedupe_window_days: 7     # 同 (type, 地区) 的冷却期，单位：自然日；含首日不含第 7 天后
+    regions:                  # 地区关键词：命中即定地区；都没命中记 global
+      mideast: [加沙, 以色列, 伊朗, 黎巴嫩, 胡塞, 也门, 叙利亚, 伊拉克, 霍尔木兹, 红海]
+      russia_ukraine: [俄罗斯, 乌克兰, 基辅, 莫斯科, 泽连斯基, 克里姆林]
+      asia_pacific: [朝鲜, 平壤, 台海, 日本, 韩国, 印度, 巴基斯坦, 阿富汗]
+      europe: [欧盟, 北约, 欧洲, 英国, 法国, 德国]
+      americas: [美国, 白宫, 华盛顿, 加拿大, 巴西]
+    rules:                    # 每条规则：type + severity + 标题关键词（子串匹配）
+      # excludes 只在关键词命中位置上抵消，必须包含本规则某个关键词，否则加载期拒绝。
+      - type: war_escalation  # 3=全球战争/大国直接冲突；必须人工复核（§8.5）
+        severity: 3
+        keywords: [宣战, 全面战争, 核试验, 核打击, 核威胁, 大国冲突, 军事同盟参战]
+      - type: regional_conflict   # 2=区域冲突：跨境打击/交火/武装升级
+        severity: 2
+        keywords: [空袭, 军事打击, 导弹袭击, 交火, 武装冲突, 冲突升级, 停火破裂, 地面进攻]
+      - type: sanctions           # 2=制裁/出口管制/禁运/资产冻结
+        severity: 2
+        keywords: [制裁, 出口管制, 禁运, 冻结资产, 实体清单, 长臂管辖]
+      - type: trade_friction      # 2=关税与贸易摩擦（避险情绪的结构性来源）
+        severity: 2
+        keywords: [关税, 贸易战, 报复性措施, 贸易谈判破裂]
+      - type: terror_attack       # 2=恐袭（区域性风险定价）
+        severity: 2
+        keywords: [恐怖袭击, 恐袭, 自杀式爆炸, 极端组织袭击]
+        excludes: [恐袭演习]      # 演练类报道不算事件
+      - type: local_incident      # 1=局部事件：爆炸/抗议/政局动荡
+        severity: 1
+        keywords: [爆炸, 枪击, 抗议, 骚乱, 政变, 议会解散]
+        excludes: [爆炸性, 爆炸式] # 价格/行情的修辞，不是安全事件
+    review_exclusions:         # 人工复核判死的误报：按 content_hash 精确排除，附理由
+                               # 与日期。它记录复核结论、不是关键词规则，故不改
+                               # rules_version；新增条目必须写 reason（加载期拒绝空理由）。
+                               # 哈希能在 data/normalized/news_*.csv 的 content_hash 列定位原文。
+                               # 同一则公告会被多家快讯转述：只排最新那条会被下一篇顶上来
+                               # （10-20 的 europe 被排掉后 10-21 的 global 立刻浮出），
+                               # 所以按「同一则公告」整组排除。
+      - content_hash: "sha256:ee8f816189cafdb9bf7efae18daee84dac8f0768d7f259eb196f5d5f9aa0fd46"
+        reason: "2026-10-20 家乐福下调财务目标、顺带提到骚乱：主体是公司财报，属转述误报（用户 2026-10-24 裁定删除）"
+        decided_by: 用户
+        decided_at: "2026-10-24"
+      - content_hash: "sha256:b92aeedc5e966556c5c809ac6784b3c4a4991a30d27a9935f29ef34175151746"
+        reason: "同一则家乐福公告的另一篇快讯（谈消费压力），非独立地缘事件"
+        decided_by: Agent
+        decided_at: "2026-10-24"
+      - content_hash: "sha256:a93db66c87b4ed6afabe4a7e47f5f72e4ec26aa95bf6e0080f0994472e968239"
+        reason: "同一则家乐福公告的第三篇快讯（谈 2 亿欧元影响），排掉 10-20 那条后会被它顶上"
+        decided_by: Agent
+        decided_at: "2026-10-24"

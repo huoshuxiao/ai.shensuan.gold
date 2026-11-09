@@ -1,0 +1,58 @@
+# 应用主配置：路径、时区、运行模式、日志与启动前预检阈值。
+# 规则依据：AGENTS.md §15.6（配置优先级）、§15.7（日志）、§15.10（内存闸）、§19.1（每日预检）。
+# 所有路径均相对仓库根目录；禁止写死绝对路径（§15.4）。
+# 修改任何取值都会改变 config_hash；必须同批更新 CHANGELOG、看板与相关测试（§15.6）。
+schema_version: "1"           # 配置结构版本；schema 变更时递增，加载器按此校验
+
+# 统一时区：存储使用带时区 ISO-8601，展示按此转换（§5.2）。
+timezone: Asia/Shanghai
+
+# 运行模式：LLM_IN_BAND / DETERMINISTIC / DEGRADED / SHADOW（§4.3）。
+# P1 只实现数据层，固定 DETERMINISTIC；P5 评估签字前不得改为 LLM_IN_BAND。
+mode: DETERMINISTIC
+
+# 数据与产物路径；全部相对仓库根目录。
+paths:
+  data: data                  # 数据根目录
+  raw: data/raw               # 原始快照：append-only，gitignored
+  normalized: data/normalized # 规范化长表与 rejected 留档，gitignored
+  manual: data/manual         # 手工维护 CSV；模板入库，真实数据按需
+  reference: data/reference   # 参考数据：交易日历等非行情产物，带来源/抓取时间/校验和（§6.4）
+  decisions: data/decisions   # 事实包、链路状态、决策产物，gitignored
+  paper: data/paper           # 纸面账本，gitignored
+  live: data/live             # 实盘回录：只在本机，永不入库
+  logs: logs                  # JSONL 日志，按日轮转
+  report: report              # 每日报告与图表输出
+
+# Streamlit 只绑定回环地址；v1 不对公网开放（§14.2）。
+ui:
+  host: 127.0.0.1             # 仅本机访问
+  port: 8501                  # 默认端口；被占用时由启动命令覆盖
+
+# 日志保留与级别；在线日志 7 天后删除（README 第 13 条、§15.7）。
+logging:
+  level: INFO                 # DEBUG/INFO/WARNING/ERROR
+  retention_days: 7           # 单位：天；严格早于截止日的文件才删除
+
+# 抓取与 PIT 截止设置。
+ingest:
+  retries: 2                  # 每个源失败后的重试次数（不含首次）
+  backoff_s: 0.5              # 指数退避基数，单位：秒
+  request_timeout_s: 600      # 单源请求超时，单位：秒；GPR 大文件需要更长
+  history_start: "2021-10-19" # 默认历史起点；各数据集可在 data_sources.yaml 覆盖
+  cutoff_time: "07:00"        # 事实包 PIT 截止（Asia/Shanghai）；晚于此 available_at 的记录不得进入
+
+# 启动前硬闸；任一不达标则 preflight 失败，日链不得继续（§19.1）。
+preflight:
+  min_disk_free_gb: 5.0       # 磁盘可用下限，单位：GiB
+  llm_min_free_gb: 9.5        # LLM 启动所需 MemAvailable 下限，单位：GiB；P5 前按 9b 实测峰值重定（§15.10）
+
+# P1 阶段验收闸阈值：数据质量/连续性/一致性全部由程序判定，不依赖人工目视（§18.6）。
+# 生效阶段：`cli.py accept --stage P1`。规则依据：AGENTS §6.6、§17.3、§18.3、§18.6。
+# 修改影响：任一阈值改动都会改变 config_hash，并使既有 P1 验收卡作废，必须重跑验收。
+acceptance:
+  min_weekday_coverage: 0.80  # 日频源工作日覆盖率下限（0–1）；分母是周一至周五近似，交易日历接入后收紧
+  max_stale_days: 5           # 核心源最近一行相对验收基准日的最大滞后，单位：自然日；超阈值即验收 FAIL
+  weekly_rows_per_year_min: 40 # 周频源行数/年下限；用于识别周频节奏，不误报成缺口（§6.6）
+  weekly_rows_per_year_max: 60 # 周频源行数/年上限；必须 >= 下限，加载期校验方向
+  replay_kinds: [price, series] # 参与「原始快照重放对表」的 kind；news/events 的批次字段本就随 run 变化，不纳入
