@@ -945,3 +945,28 @@ pytest 终端本次未输出汇总行，条数取自 junit `testsuite` 属性。
 - 阶段里程碑仍 `PENDING`：机器闸过 ≠ 签收，待用户签卡第 7 节三签字项（P1 签收 / 4 事件 severity 复核 / R-006 五偏差）。
 - cron 日更监控未安装（属系统级改动，待用户授权；P7 前的最低方案：工作日定时 ingest + accept，判红写 ISSUE）。
 - 网络冒烟 16 条本轮未跑；数据产物（data/）gitignored 不入库。
+
+## [签收] 2026-11-09（T-039：用户签收 P1 通过 · cron 取手动）
+
+### 变更
+
+- 用户裁决：P1 阶段**签收通过（甲）**，里程碑 P1 转 `DONE`；cron 日更监控取**乙（先手动跑，不装监控）**。
+- 验收卡 `docs/report/acceptance/P1/acceptance_v5.md` 结论与签字行落痕（用户甲，2026-11-09）；AGENTS 附录 H v1.4、看板里程碑与 T-039 同批。
+- 签字项 2（4 条事件 severity 复核）与 3（R-006 五项设计偏差确认）仍待办，转 P2 前置，不阻塞 P1。
+
+### 手动日更命令清单（cron 乙，工作日按 §19.1 时间线，CST）
+
+```
+/usr/bin/python3.10 src/main/python/com/sun/shensuan/gold/cli.py preflight
+/usr/bin/python3.10 src/main/python/com/sun/shensuan/gold/cli.py ingest --run-id daily-$(date +%Y%m%d)
+/usr/bin/python3.10 src/main/python/com/sun/shensuan/gold/cli.py accept --stage P1
+/usr/bin/python3.10 src/main/python/com/sun/shensuan/gold/cli.py doctor --write
+/usr/bin/python3.10 src/main/python/com/sun/shensuan/gold/cli.py rate --date $(date +%F)
+```
+
+- `accept` EXIT=1 即判红（重点看 Q3 配置同版本 / Q4 批次新鲜）；`doctor` EXIT=1 是 NEEDS_HUMAN 信号（事件未复核），两者退出码 1 是预期判据信号、不是命令崩溃。
+- 改任何配置后必须重跑 ingest 再 accept（Q3）；数据停超过 5 天 accept 会判红（Q4）。
+
+### 风险 / 未做
+
+- 无自动监控：数据停了需人工发现（用户已知悉，取乙）；T-025 汇率观察需续观 3–5 交易日（第 1 天已 GREEN）。

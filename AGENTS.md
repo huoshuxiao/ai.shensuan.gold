@@ -2846,6 +2846,7 @@ docker run --rm --network none -v "$PWD/data:/app/data:ro" gold-system:dev pytes
 | v1.1 | 2026-10-25 | 新增 §6.9 数据问题自动识别与安全处置：`data/remediation.py` 读 `_quality.json`/规范化表/`rejected/`/原始快照/手工事件表，产出 `_remediation.json`（问题清单 + 每数据集 `display/feature/score/promotion_eligible`、`price_only`、禁读字段/特征/晋升、日历口径与下界标记）；`cli.py doctor [--write]` 退出码 0/1/2；`ingest` 自动落盘并把摘要写进 `_quality.json`，`coverage` 附带摘要。三种状态 `AUTO_RESOLVED/CONTAINED/NEEDS_HUMAN`；只隔离/降能力/标注/阻断晋升，不修源、不补值、不猜 severity。实测 12 条问题：2 自动消解 / 9 已封锁 / 1 待人工复核（4 条 `XGE-` 事件 severity）；P1 `accept` 判决不变 |
 | v1.2 | 2026-11-09 | 用户裁决（§0.7）：设计取丙（本文件为单一事实源，10-29 替代设计保留为参考文档）；模型收口为 `qwen2.5:7b` 单模型（§11.3 模型行与附录 A 多模型口径作废）；维持每日评审每日决策；动作空间中性多维（「可空仓」口径边界见 §0.7） |
 | v1.3 | 2026-11-09 | 评审修复（T-037）：§18.6 新增 Q4 批次墙钟新鲜闸（判据 14→15 项，158→159 条）；C4 对两条汇率源生效（`price_min/max=5–10`）；C1 架构导入闸改 AST 判定+负对照；F2 事件合并保留 `severity_reviewed` 等额外列；F3 日历缺 sha256 判不可用；F6 事件同 id severity 冲突整组剔除留档判 RED。全量 pytest 224 passed EXIT=0；accept 现跑 Q3/Q4 双判红（配置漂移+批次陈旧，待重跑 ingest 消解） |
+| v1.4 | 2026-11-09 | P1 签收（T-038/T-039）：重跑入库接到 2026-11-09，accept 复跑 `verdict=PASS`（142/0/17，159 条/15 项），Q3/Q4 消解，global_status=OK；**用户签收 P1 通过（甲）**，里程碑转 DONE；cron 取手动（乙）。头部状态行「等待用户签收」为旧读数，以本行为准。事件 severity 复核（4 条）与 R-006 五偏差确认转 P2 前置 |
 
 ---
 
