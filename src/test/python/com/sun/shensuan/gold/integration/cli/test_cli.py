@@ -15,6 +15,7 @@ from com.sun.shensuan.gold.cli import (
     command_coverage,
     command_ingest,
     command_normalize,
+    command_validate_manual,
     main,
 )
 from com.sun.shensuan.gold.common.timeutil import now_shanghai
@@ -44,12 +45,21 @@ def test_preflight(capsys):
     assert checks["config_hash"] == "GREEN"
 
 
-def test_validate_manual(capsys):
-    """验证 validate-manual 退出码 0 且 status=OK（仓库手工模板合法）。"""
-    code = main(["validate-manual"])
+def test_validate_manual(tmp_config, capsys):
+    """验证 validate-manual 契约：模板齐全→OK；缺文件→YELLOW 披露（隔离沙箱，不读真实仓库数据）。
+
+    旧写法直读仓库 data/manual（ gitignored），新鲜克隆里必 YELLOW——把生产数据当夹具，
+    2026-11-09 克隆闸抓出。负对照抽掉一个模板，证明 YELLOW 臂真能翻动。
+    """
+    code = command_validate_manual(tmp_config, None)
     payload = json.loads(capsys.readouterr().out)
     assert code == 0
     assert payload["status"] == "OK"
+    (tmp_config.path("manual") / "tips10y.csv").unlink()
+    code = command_validate_manual(tmp_config, None)
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert payload["status"] == "YELLOW"
 
 
 def test_rate_command(capsys):
