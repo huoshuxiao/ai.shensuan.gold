@@ -929,3 +929,19 @@ pytest 终端本次未输出汇总行，条数取自 junit `testsuite` 属性。
 ### 风险 / 未做
 
 - `config_hash` 变为 `sha256:0946643d…`；Q3/Q4 判红是预期，重跑 ingest 后复验；本批未提交、不 push。
+
+## [验收/数据] 2026-11-09（T-038：重跑入库 + 第 5 版验收卡 + 恢复日更）
+
+### 变更 / 读数
+
+- 全量入库 `cli.py ingest --run-id p1-t037-20261109` → EXIT=0，`reference_date=2026-11-09`、`scope=full`、`global_status=OK`、`red=[]`、`core_not_green=[]`；数据由 10-23 接到当天（17 天缺口补齐）。
+- `accept --stage P1` 复跑 → EXIT=0，`verdict=PASS`，`{FAIL:0,PASS:142,SKIPPED:17}`（159 条/15 项）；Q3（配置同版本 `0946643d…`）与 Q4（批次 0 天 ≤ 5）双闸通过。
+- `doctor --write` → EXIT=1，`overall=NEEDS_HUMAN`，`{AUTO_RESOLVED:2,CONTAINED:8,NEEDS_HUMAN:1}`，`config_hash_match=True`，`blocked_datasets=[comex_gc,geo_events,gpr,spdr_gold,us10y,wti_cl]`，`review_queue=4`，`report_hash=sha256:3789187e…`。
+- 第 5 版验收卡：`docs/report/acceptance/P1/acceptance_v5.md`（取代第 4 版 `acceptance.md`，旧卡保留）；四问全「能」，三签字项待用户。
+- T-025 汇率同日兜底观察重新起算：第 1 天 `rate --date 2026-11-09` → GREEN，source=BOC 折算价 6.7188，diverged=false（需续观 3–5 交易日）。
+
+### 风险 / 未做
+
+- 阶段里程碑仍 `PENDING`：机器闸过 ≠ 签收，待用户签卡第 7 节三签字项（P1 签收 / 4 事件 severity 复核 / R-006 五偏差）。
+- cron 日更监控未安装（属系统级改动，待用户授权；P7 前的最低方案：工作日定时 ingest + accept，判红写 ISSUE）。
+- 网络冒烟 16 条本轮未跑；数据产物（data/）gitignored 不入库。
