@@ -896,12 +896,13 @@ pytest 终端本次未输出汇总行，条数取自 junit `testsuite` 属性。
 ### 变更
 
 - `.gitignore`：裸 `data/`（:232）改为 `/data/` 锚定根目录——旧规则把源码包 `src/main/.../gold/data/` 整体忽略，致 `ca3fbfe "P1 init"` 提交含 0 个数据层文件、克隆即 ImportError（评审 B2/F1）；同批删除对 3 个 `__init__.py` 的逐行忽略。
-- 补交：`gold/data/` 源码包 19 个文件、3 个 `__init__.py`、10 个测试文件（contract/data、integration/data、unit/data）。
+- 补交：`gold/data/` 源码包 18 个文件、3 个 `__init__.py`、10 个测试文件（contract/data、integration/data、unit/data）。
 
 ### 验证
 
 - `git check-ignore -v` 现读：`normalize.py`/`__init__.py` 不再命中；根 `data/normalized/_quality.json` 仍由 `/data/` 忽略。
-- 克隆完整性闸与全量测试读数见本批 commit 后追加（若克隆 pytest 失败则本条不得标 DONE）。
+- 克隆完整性闸：首跑（`54aed79` 归档）`1 failed, 214 passed`——`test_validate_manual` 直读 gitignored 的 `data/manual`，新鲜克隆必 YELLOW（把生产数据当夹具，§17.1）；改为 `tmp_config` 隔离沙箱并补「抽掉模板→YELLOW」负对照（`ff05d24`）后，复跑克隆闸（HEAD 归档到 `/tmp/gold_clone_head`）→ `215 passed, 16 deselected in 23.77s`，EXIT=0。
+- 覆盖面现读：HEAD `src/main` 32/32、`src/test` 23/23（含 conftest）；工作区干净。
 
 ### 风险 / 未做
 
