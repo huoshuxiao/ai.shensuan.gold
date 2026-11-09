@@ -10,7 +10,7 @@
 「近似」，不得把近似口径冒充成官方日历。
 
 失败口径：抓取失败抛 `AdapterError`（调用方决定降级，不静默返回空）；日历文件
-未落盘或校验和不符时 `load_trade_calendar()` 返回 `integrity` 非 `OK` 的空日历，
+未落盘、缺校验和或校验和不符时 `load_trade_calendar()` 返回 `integrity` 非 `OK` 的空日历，
 由调用方回落 `weekday` 并把原因写进读数，不得当成「无缺口」。
 """
 
@@ -62,6 +62,7 @@ class TradeCalendar:
         days: 应交易日集合；`integrity` 非 `OK` 时为空集。
         integrity: `OK`/`MISSING_FILE`/`UNREADABLE`/`SHA_MISMATCH`/`EMPTY`；
             非 `OK` 表示这份日历不可用于判缺口，调用方必须披露回落口径。
+            `SHA_MISMATCH` 同时覆盖「meta 缺 sha256」与「校验和不符」两种情形。
         note: 人类可读的补充说明（来源、行数、失败原因）。
         rows: 日历行数；`integrity` 非 `OK` 时为 0。
         as_of_min / as_of_max: 日历覆盖的首末交易日；无数据时为 None。
@@ -272,7 +273,15 @@ def load_trade_calendar(directory: Path | str, basis: str) -> TradeCalendar:
         )
     digest = sha256(payload).hexdigest()
     expected_digest = str(meta.get("sha256") or "")
-    if expected_digest and expected_digest != digest:
+    if not expected_digest:
+        # 缺校验和与校验和不符同档：没有 sha256 就无法证明正文没被改过，不得判 OK 放行
+        # （AGENTS §6.4 参考层「正文与校验和不符时视为不可用」，缺校验和同样不可用）。
+        return TradeCalendar(
+            basis=basis,
+            integrity=_INTEGRITY_SHA_MISMATCH,
+            note="meta 缺 sha256：无校验和的日历视为不可用，回落工作日近似",
+        )
+    if expected_digest != digest:
         return TradeCalendar(
             basis=basis,
             integrity=_INTEGRITY_SHA_MISMATCH,

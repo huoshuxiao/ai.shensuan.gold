@@ -6,6 +6,8 @@
 """
 from __future__ import annotations
 
+import io
+
 import pandas as pd
 import pytest
 
@@ -208,6 +210,53 @@ def test_merge_preserves_manual_rows_and_replaces_only_extracted():
     assert list(merged["event_id"]) == ["M-2026-001", f"{EXTRACT_PREFIX}-ge-1-2026-10-19-sanctions-bbbb2222"]
     empty_merge, empty_stats = merge_with_manual(pd.DataFrame(columns=EVENT_COLUMNS), pd.DataFrame(columns=EVENT_COLUMNS))
     assert empty_merge.empty and empty_stats == {"manual_kept": 0, "extracted_rows": 0, "replaced_extracted_rows": 0}
+
+
+def test_merge_preserves_manual_review_column():
+    """F2 回归：人工复核列 severity_reviewed 必须随合并原样保留，重跑抽取不得截掉。
+
+    真实路径（cli.extract-events）用 dtype=str 读手工表、to_csv 写回；用户复核后在
+    该列写 1，remediation 靠字面 "1" 解锁 GEO_EVENT_SEVERITY。若 merge 把列截掉，
+    复核结论静默丢失、封锁永远解不开。负对照动被试侧：给现有表加一列复核标记。
+    """
+    manual_id = "M-2026-001"
+    old_extracted_id = f"{EXTRACT_PREFIX}-ge-1-2026-10-01-sanctions-aaaa1111"
+    new_extracted_id = f"{EXTRACT_PREFIX}-ge-1-2026-10-19-sanctions-bbbb2222"
+    existing = pd.DataFrame([
+        {"event_id": manual_id, "date": "2026-09-01", "type": "sanctions", "severity": 2,
+         "region": "global", "source_url": "https://example.gov/a",
+         "available_at": "2026-09-01T08:00:00+08:00", "severity_reviewed": "1"},
+        {"event_id": old_extracted_id, "date": "2026-10-01", "type": "sanctions", "severity": 2,
+         "region": "global", "source_url": "akshare.unit#sha256:old",
+         "available_at": "2026-10-01T08:00:00+08:00", "severity_reviewed": ""},
+    ])
+    extracted = pd.DataFrame([
+        {"event_id": new_extracted_id, "date": "2026-10-19", "type": "sanctions", "severity": 2,
+         "region": "mideast", "source_url": "akshare.unit#sha256:new",
+         "available_at": "2026-10-19T09:15:00+08:00"},
+    ])
+    merged, stats = merge_with_manual(existing, extracted)
+    assert stats["manual_kept"] == 1
+    assert list(merged.columns) == EVENT_COLUMNS + ["severity_reviewed"], "额外列必须保留且排在 EVENT_COLUMNS 之后"
+    manual_row = merged.loc[merged["event_id"] == manual_id].iloc[0]
+    assert str(manual_row["severity_reviewed"]) == "1", "人工复核结论必须原样保留"
+    new_row = merged.loc[merged["event_id"] == new_extracted_id].iloc[0]
+    assert pd.isna(new_row["severity_reviewed"]) or str(new_row["severity_reviewed"]) == "", "抽取行没有复核列时留空"
+    # 写回 CSV 再按 remediation 的消费形状读：复核结论仍是字面 "1"，解锁不会因 dtype 漂移失效。
+    reread = pd.read_csv(io.StringIO(merged.to_csv(index=False)), dtype=str, keep_default_na=False)
+    assert reread.loc[reread["event_id"] == manual_id, "severity_reviewed"].iloc[0] == "1"
+
+
+def test_merge_without_extra_columns_keeps_exact_event_columns():
+    """放行对照：现有表没有额外列时，输出列恰好等于 EVENT_COLUMNS，不多不少。"""
+    existing = pd.DataFrame([
+        {"event_id": "M-2026-001", "date": "2026-09-01", "type": "sanctions", "severity": 2,
+         "region": "global", "source_url": "https://example.gov/a", "available_at": "2026-09-01T08:00:00+08:00"},
+    ])
+    merged, _ = merge_with_manual(existing, pd.DataFrame(columns=EVENT_COLUMNS))
+    assert list(merged.columns) == EVENT_COLUMNS
+    empty, _ = merge_with_manual(pd.DataFrame(columns=EVENT_COLUMNS), pd.DataFrame(columns=EVENT_COLUMNS))
+    assert list(empty.columns) == EVENT_COLUMNS
 
 
 def test_review_exclusions_drop_only_the_named_rows():

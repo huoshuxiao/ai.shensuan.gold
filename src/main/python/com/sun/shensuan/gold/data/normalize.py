@@ -226,6 +226,19 @@ def normalize_frame(
             dropped += int(bad_severity.sum())
         # 用原 severity 序列里“合法位置”的值，保证与剔除后的 frame 行对齐。
         frame["severity"] = severity.loc[~bad_severity].astype(int)
+        # 同 event_id 出现不同 severity 是人工登记冲突：不猜等级，整组剔除留档并判 RED
+        # （评审 F6；旧 keep=last 会静默留最后一条，可能把 3 级降成 1 级）。
+        distinct = frame.groupby("event_id")["severity"].nunique()
+        conflict_ids = distinct[distinct > 1].index
+        if len(conflict_ids):
+            conflict_mask = frame["event_id"].isin(conflict_ids)
+            notes.append(f"事件 severity 冲突整组剔除留档：{sorted(conflict_ids.tolist())}")
+            rejected = pd.concat(
+                [rejected, _rejected_rows(frame, conflict_mask, "SEVERITY_CONFLICT")], ignore_index=True
+            )
+            invalid_rows += int(conflict_mask.sum())
+            dropped += int(conflict_mask.sum())
+            frame = frame.loc[~conflict_mask].copy()
         frame = frame.drop_duplicates(subset=["event_id"], keep="last")
         frame = frame.sort_values("as_of", kind="mergesort").reset_index(drop=True)
         # 手工事件必须显式可辨：下游看到 MANUAL 才知道该字段需要人工复核。

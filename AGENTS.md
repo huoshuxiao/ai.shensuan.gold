@@ -2195,6 +2195,9 @@ README 第 15 条：非正式代码先在 `test` 目录验证，验证成功后�
 | 质量 | Q1 | `_quality.json` 自洽：核心 GREEN、RED/降级/修订逐项列出、空表不得写 GREEN | §6.6 |
 | 质量 | Q2 | 原始快照只增不改：非基准日文件不得在本批次被写入 | §6.4 |
 | 质量 | Q3 | 验收与数据同版本：`_quality.json` 记录的 `config_hash` 必须等于本次验收加载的配置哈希；不一致或缺记录即 FAIL（§18.1 纪律 1）——改了判据/阈值不重跑 ingest，旧数据就属于另一个配置 | §18.1 |
+| 质量 | Q4 | 批次相对墙钟新鲜：批次基准日距验收日（Asia/Shanghai）滞后 > `acceptance.max_stale_days` 即 FAIL，须重跑 ingest；N2 只相对批次基准日算行级滞后，批本身陈旧时仍会读「滞后 0 天」，Q4 在批次层兜墙钟（2026-11-09 评审 C2 新增） | §6.6、§18.1 |
+
+> 计数更新（2026-11-09）：新增 Q4 后判据由 14 项增至 **15 项**（条数随启用数据集 158→159）。头部状态行与 §6.9 的「14 条/158 条」为旧读数，以本注为准；旧句保留留痕。同批：C4 对 `usdcny`/`usdcny_mid` 生效（配置声明 `price_min/max=5–10`，实测 6.09–8.71 在内，抓 /100 单位错）；C1 导入闸改 AST 判定并带负对照；F2 合并保留 `severity_reviewed` 等额外列；F3 日历缺 sha256 判不可用；F6 事件同 id severity 冲突整组剔除留档判 RED。
 
 **判据口径**
 
@@ -2842,6 +2845,7 @@ docker run --rm --network none -v "$PWD/data:/app/data:ro" gold-system:dev pytes
 | v1.0 | 2026-10-24 | 用户裁定三条数据口径（全部取“乙”）：①`cftc_gold` 两行多空净仓全 0 → series 分支按 `drop_all_zero_rows` 整行剔除（§6.6 补，默认关闭，GPR 的 0 是真实值）；②`shfe_au0` 618 行 `settlement=0` → price 分支按 `positive_columns` 整行剔除（§6.6 补）；③`spdr_gold` 覆盖率 50.5% → 标 `LOW_COVERAGE` 降 YELLOW，P2 的 SPDR 流量只展示不进分数。配套：规范化层新增「剔除即从主表移除」（`NormalizeResult.rejected` → `merge(removed=…)`）与「完整快照整表替换」（`authoritative_snapshot`，用于事件日历），修复被剔除行从历史并集复活；`geo.news_events` 新增人工复核排除表 `review_exclusions`（按 `content_hash` 点名，不改 `rules_version`）；§18.6 的 N1 增加「已披露才放行」一格。P1 程序化验收 `verdict=PASS`（139/0/19） |
 | v1.1 | 2026-10-25 | 新增 §6.9 数据问题自动识别与安全处置：`data/remediation.py` 读 `_quality.json`/规范化表/`rejected/`/原始快照/手工事件表，产出 `_remediation.json`（问题清单 + 每数据集 `display/feature/score/promotion_eligible`、`price_only`、禁读字段/特征/晋升、日历口径与下界标记）；`cli.py doctor [--write]` 退出码 0/1/2；`ingest` 自动落盘并把摘要写进 `_quality.json`，`coverage` 附带摘要。三种状态 `AUTO_RESOLVED/CONTAINED/NEEDS_HUMAN`；只隔离/降能力/标注/阻断晋升，不修源、不补值、不猜 severity。实测 12 条问题：2 自动消解 / 9 已封锁 / 1 待人工复核（4 条 `XGE-` 事件 severity）；P1 `accept` 判决不变 |
 | v1.2 | 2026-11-09 | 用户裁决（§0.7）：设计取丙（本文件为单一事实源，10-29 替代设计保留为参考文档）；模型收口为 `qwen2.5:7b` 单模型（§11.3 模型行与附录 A 多模型口径作废）；维持每日评审每日决策；动作空间中性多维（「可空仓」口径边界见 §0.7） |
+| v1.3 | 2026-11-09 | 评审修复（T-037）：§18.6 新增 Q4 批次墙钟新鲜闸（判据 14→15 项，158→159 条）；C4 对两条汇率源生效（`price_min/max=5–10`）；C1 架构导入闸改 AST 判定+负对照；F2 事件合并保留 `severity_reviewed` 等额外列；F3 日历缺 sha256 判不可用；F6 事件同 id severity 冲突整组剔除留档判 RED。全量 pytest 224 passed EXIT=0；accept 现跑 Q3/Q4 双判红（配置漂移+批次陈旧，待重跑 ingest 消解） |
 
 ---
 

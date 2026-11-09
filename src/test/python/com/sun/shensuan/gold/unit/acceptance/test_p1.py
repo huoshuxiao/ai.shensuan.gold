@@ -17,6 +17,7 @@ import pytest
 from com.sun.shensuan.gold.acceptance.p1 import (
     CheckResult,
     _latest_raw_csv,
+    check_batch_freshness,
     check_key_unique,
     classify_cadence,
     check_no_fabricated_values,
@@ -530,3 +531,17 @@ def test_frame_dates_rejects_unparseable_column():
 def test_check_result_shape_is_stable():
     """判据输出契约：三态与 detail 是 UI/看板的对外键，不得漂移。"""
     assert CheckResult("PASS", "ok").as_dict() == {"status": "PASS", "detail": "ok"}
+
+
+def test_batch_freshness_gate():
+    """Q4：批次基准日距验收日超 max_stale_days 判红；当天/边界/未来批次放行。
+
+    评审 C2：N2 只相对批次基准日算滞后，17 天前的批可读「滞后 0 天」冒充新鲜；
+    Q4 用墙钟兜住。负对照动被试侧（批次日期），不动阈值。
+    """
+    today = date(2026, 11, 9)
+    assert check_batch_freshness(today, today, 5).status == "PASS"
+    assert check_batch_freshness(date(2026, 11, 4), today, 5).status == "PASS"
+    assert check_batch_freshness(date(2026, 11, 3), today, 5).status == "FAIL"
+    assert check_batch_freshness(date(2026, 10, 23), today, 5).status == "FAIL"
+    assert check_batch_freshness(date(2026, 11, 10), today, 5).status == "PASS"

@@ -907,3 +907,25 @@ pytest 终端本次未输出汇总行，条数取自 junit `testsuite` 属性。
 ### 风险 / 未做
 
 - 不 push；历史提交 `ca3fbfe` 的不完整状态不可改写（不 amend），由本批补交修复。
+
+## [修复] 2026-11-09（T-037：评审尺子缺陷 C1/C2/C4/F2/F3/F6）
+
+### 变更
+
+- **C1**（高）：`architecture/test_architecture.py` 的 main→test 导入闸由坏正则改 AST 判定（覆盖 `import x`/`from x import y`/`from gold import unit` 三形状），新增负对照测试证 5 种真实导入被抓、4 种正常导入放行。
+- **C2**（高）：`acceptance/p1.py` 新增判据 **Q4 批次相对墙钟新鲜**——批次基准日距验收日 > `max_stale_days` 即 FAIL；判据 14→15 项（158→159 条），AGENTS §18.6 同批回写并注旧计数作废。
+- **C4**（中）：`data_sources.yaml` 给 `usdcny`/`usdcny_mid` 声明 `price_min/max=5–10`（实测 6.09–8.71 在内），C4 由 SKIPPED 转 PASS，抓 /100 单位错。
+- **F2**（高）：`news_events.py` 合并输出保留 `EVENT_COLUMNS` + 现有额外列（`severity_reviewed` 不再被静默截掉）。
+- **F3**（中）：`trade_calendar.py` meta 缺 `sha256` 判 `SHA_MISMATCH`（不可用），与校验和不符同档。
+- **F6**（中）：`normalize.py` 事件同 `event_id` 不同 severity → 整组剔除留档（`SEVERITY_CONFLICT`）判 RED，不静默取最后；同 severity 重复仍正常去重。
+
+### 验证
+
+- 每处先写失败测试跑红再修绿：C1 改前 NameError EXIT=1 → 9 passed；Q4 改前 ImportError EXIT=2 → 38 passed；F6 改前 GREEN≠RED EXIT=1 → 绿。
+- 全量 `pytest` → `224 passed, 16 deselected in 24.67s`，EXIT=0（较修前 +9 条新测试）。
+- `accept --stage P1` 现跑 → EXIT=1，`{FAIL:2, PASS:140, SKIPPED:17}`：Q3 配置漂移（`9e87c4e8…` vs `0946643d…`）+ Q4「批次 2026-10-23 距 2026-11-09 已 17 天 > 5」——两红均待步骤4/5 重跑 ingest 消解，属尺子正常 biting。
+- F2/F3 由子代理实现（中途 interrupted），主代理复核 diff 并跑测试 28 passed；F6 由主代理补完。
+
+### 风险 / 未做
+
+- `config_hash` 变为 `sha256:0946643d…`；Q3/Q4 判红是预期，重跑 ingest 后复验；本批未提交、不 push。

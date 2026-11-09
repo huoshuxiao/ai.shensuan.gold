@@ -22,6 +22,7 @@ from typing import Any
 import pandas as pd
 
 from ..common.errors import GoldError
+from ..common.timeutil import now_shanghai
 from ..config.loader import DatasetConfig, LoadedConfig
 from ..data.normalize import cadence_of, normalize_frame
 from ..data.store import format_cell
@@ -548,6 +549,31 @@ def check_report_config_version(report: dict[str, Any], config_hash: str) -> Che
     return CheckResult("PASS", f"config_hash 一致（{recorded[:20]}…）")
 
 
+def check_batch_freshness(ref_date: date, today: date, max_stale_days: int) -> CheckResult:
+    """判据 Q4：验收批次基准日相对墙钟不得过期（评审 C2，2026-11-09）。
+
+    Args:
+        ref_date: 批次基准日（质量报告 `reference_date` 或显式 `--date`）。
+        today: 验收当天（Asia/Shanghai）；由调用方取墙钟，便于测试注入。
+        max_stale_days: 允许的最大滞后自然日（配置 `acceptance.max_stale_days`）。
+
+    Returns:
+        CheckResult: 滞后 > 阈值 → FAIL（陈旧批不得冒充新鲜，须重跑 ingest）；
+            滞后 ≤ 阈值 → PASS。未来批次（滞后为负）不属本闸管辖，放行。
+
+    Notes:
+        N2 只相对批次基准日算核心源滞后，批本身陈旧时仍读「滞后 0 天」；
+        Q4 在批次层兜墙钟，与 N2 的行级新鲜度互补，不互相替代。
+    """
+    lag = (today - ref_date).days
+    if lag > max_stale_days:
+        return CheckResult(
+            "FAIL",
+            f"批次基准日 {ref_date.isoformat()} 距验收日 {today.isoformat()} 已 {lag} 天 > max_stale_days={max_stale_days}；重跑 ingest 再验收",
+        )
+    return CheckResult("PASS", f"批次基准日 {ref_date.isoformat()} 距验收日 {today.isoformat()} {lag} 天 ≤ {max_stale_days}")
+
+
 def check_quality_report(report: dict[str, Any], specs: dict[str, DatasetConfig]) -> CheckResult:
     """判据 Q1：质量报告自身必须自洽（§6.6 质量闸口径）。
 
@@ -754,6 +780,7 @@ def run_p1_acceptance(
     add("质量", "Q1", "质量报告自洽", check_quality_report(report, specs))
     add("质量", "Q2", "原始层只增不改", check_raw_append_only(raw_root, ref_date, started))
     add("质量", "Q3", "验收与数据同版本", check_report_config_version(report, config.config_hash))
+    add("质量", "Q4", "批次相对墙钟新鲜", check_batch_freshness(ref_date, now_shanghai().date(), acceptance.max_stale_days))
 
     counts = {s: sum(1 for c in checks if c["status"] == s) for s in ("PASS", "FAIL", "SKIPPED")}
     verdict = "FAIL" if counts["FAIL"] else "PASS"

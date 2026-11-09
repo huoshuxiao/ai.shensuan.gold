@@ -193,6 +193,10 @@ datasets:
     key_columns: [as_of]
     history_start: "2021-10-01"
     zero_fields: []
+    # 量级闸（评审 C4，2026-11-09）：/100 后应在 6–8 量级；未除 100 会是 600–800，C4 抓。
+    # 区间 5–10 覆盖本表实测 6.3014–7.2555；边界留裕量，不是交易阈值。
+    price_min: 5.0
+    price_max: 10.0
     options:
       # 固定使用同一列，不与央行中间价混用；该列按每 100 外币计价，代码里除以 100
       price_column: 中行折算价
@@ -215,6 +219,10 @@ datasets:
     key_columns: [as_of]
     history_start: "1994-01-01"
     zero_fields: []
+    # 量级闸（评审 C4，2026-11-09）：1994 年起实测 6.093–8.71（早期 8.7 量级），区间 5–10 覆盖；
+    # 未除 100 会是 600–870，C4 抓。与 usdcny 同带宽，两条序列各自判、不拼接。
+    price_min: 5.0
+    price_max: 10.0
 
   # CFTC 黄金持仓：周频；available_at=as_of+3d 06:00，按发布日做 PIT（§6.1）。
   cftc_gold:

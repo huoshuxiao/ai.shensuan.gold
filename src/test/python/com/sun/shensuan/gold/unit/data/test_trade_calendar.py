@@ -1,6 +1,6 @@
 """单元层：`data/trade_calendar` 的日历落盘、读取、校验与分母口径。
 
-覆盖场景：工作日近似不含周末、保存后能原样读回、缺文件/被改写/空文件三种
+覆盖场景：工作日近似不含周末、保存后能原样读回、缺文件/被改写/空文件/缺校验和四种
 「日历不可用」都必须带原因、`cn_sse` 声明但日历不可用时要回落近似并在标签里
 写清原因、未知口径直接拒绝、空日历拒绝落盘。
 负对照一律动被试数据（改写 CSV、清空文件），不改判据本身。
@@ -96,6 +96,38 @@ def test_unusable_calendar_reports_its_reason(tmp_path, breakage):
         "empty_csv": "EMPTY",
     }
     assert calendar.integrity == expected_integrity[breakage]
+
+
+@pytest.mark.parametrize("sha_value", [None, ""])
+def test_meta_missing_or_empty_sha256_is_unusable(tmp_path, sha_value):
+    """F3 回归：meta 缺 sha256（或为空）时日历不可用——没有校验和就无法证明正文没被改过。
+
+    负对照动被试侧：先把正文追加一行（篡改），再把 meta 的 sha256 删掉/清空。
+    旧实现 `if expected_digest and ...` 在缺校验和时跳过比对判 OK，等于放行被改过的日历；
+    AGENTS §6.4 要求校验和不符视为不可用，缺校验和同样不可用。
+    """
+    save_cn_trade_calendar(tmp_path, DAYS, None)
+    csv_path = tmp_path / "trade_calendar_cn_sse.csv"
+    meta_path = tmp_path / "trade_calendar_cn_sse.meta.json"
+    csv_path.write_text(csv_path.read_text(encoding="utf-8") + "2026-10-15\n", encoding="utf-8")
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    if sha_value is None:
+        meta.pop("sha256", None)
+    else:
+        meta["sha256"] = sha_value
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+    calendar = load_trade_calendar(tmp_path, BASIS_CN_SSE)
+    assert calendar.available is False
+    assert calendar.integrity != "OK"
+    assert "sha256" in calendar.note
+
+
+def test_meta_with_correct_sha256_stays_ok(tmp_path):
+    """放行对照：meta 校验和正确时日历仍判 OK，F3 收紧不得误伤完好日历。"""
+    save_cn_trade_calendar(tmp_path, DAYS, None)
+    calendar = load_trade_calendar(tmp_path, BASIS_CN_SSE)
+    assert calendar.integrity == "OK"
+    assert calendar.available is True
 
 
 def test_unknown_basis_rejected_and_weekday_has_no_file(tmp_path):

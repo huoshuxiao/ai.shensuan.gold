@@ -421,7 +421,14 @@ def merge_with_manual(existing: pd.DataFrame, extracted: pd.DataFrame) -> tuple[
     Notes:
         人工行 = `event_id` 不以 `XGE` 开头。每次重跑只替换抽取行，
         不覆盖人工维护的记录（§6.3 手工层由人负责）。
+        输出列 = `EVENT_COLUMNS` + 现有表里出现过的额外列（按现有列序排在后面）：
+        人工复核标记（如 `severity_reviewed`，remediation 靠它解锁 `GEO_EVENT_SEVERITY`）
+        必须随合并原样保留，不得被截掉；抽取行没有这些列时留空，不替用户填复核结论。
     """
+    extra_columns: list[str] = []
+    if existing is not None:
+        extra_columns = [column for column in existing.columns if column not in EVENT_COLUMNS]
+    output_columns = EVENT_COLUMNS + extra_columns
     manual_rows = pd.DataFrame(columns=EVENT_COLUMNS)
     replaced = 0
     if existing is not None and not existing.empty and "event_id" in existing.columns:
@@ -430,7 +437,7 @@ def merge_with_manual(existing: pd.DataFrame, extracted: pd.DataFrame) -> tuple[
         manual_rows = existing.loc[~mask].copy()
     merged = pd.concat([manual_rows, extracted], ignore_index=True)
     if merged.empty:
-        merged = pd.DataFrame(columns=EVENT_COLUMNS)
+        merged = pd.DataFrame(columns=output_columns)
     else:
         merged = merged.drop_duplicates(subset=["event_id"], keep="last")
         merged = merged.sort_values(["date", "severity", "event_id"], ascending=[True, False, True]).reset_index(drop=True)
@@ -439,4 +446,4 @@ def merge_with_manual(existing: pd.DataFrame, extracted: pd.DataFrame) -> tuple[
         "extracted_rows": int(len(extracted)),
         "replaced_extracted_rows": int(replaced),
     }
-    return merged[EVENT_COLUMNS], stats
+    return merged[output_columns], stats

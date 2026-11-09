@@ -20,15 +20,80 @@ CONFIG_DIR = REPO_ROOT / "config"
 CONFIG_FILES = ("application.yaml", "data_sources.yaml", "strategy.yaml", "llm.yaml")
 
 
+_TEST_TREE_PACKAGES = {"test", "unit", "contract", "integration", "architecture", "experimental"}
+_GOLD_PREFIX = "com.sun.shensuan.gold"
+
+
+def _imports_test_tree(source: str) -> bool:
+    """判定源码是否导入 test 树或引用 src/test 路径；AST 解析导入，路径串用正则兜底。
+
+    Args:
+        source: 单个 Python 文件的完整文本。
+
+    Returns:
+        bool: 命中 test 树导入（gold.{test,unit,contract,integration,architecture,experimental}）
+        或字面 src/test、src.test 路径引用时为 True。
+
+    Notes:
+        旧正则只匹配不存在的 gold.test 子包，真实测试包路径全漏（评审 C1）；
+        AST 同时覆盖 import x、from x import y、from gold import unit 三种形状。
+    """
+    if re.search(r"src[./]test", source):
+        return True
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            if module == _GOLD_PREFIX:
+                # from gold 包根 import unit/contract/...：别名本身就是测试树子包名
+                if any(alias.name.split(".", 1)[0] in _TEST_TREE_PACKAGES for alias in node.names):
+                    return True
+                continue
+            names = [module] + [f"{module}.{alias.name}" for alias in node.names]
+        else:
+            continue
+        for name in names:
+            if not name.startswith(_GOLD_PREFIX + "."):
+                continue
+            segment = name[len(_GOLD_PREFIX) + 1:].split(".", 1)[0]
+            if segment in _TEST_TREE_PACKAGES:
+                return True
+    return False
+
+
 def test_main_does_not_import_test_tree():
     """验证 src/main 下无文件导入 test 树或引用 src/test 路径；命中即违反架构硬闸。"""
-    pattern = re.compile(r"(from\s+com\.sun\.shensuan\.gold\.test|import\s+com\.sun\.shensuan\.gold\.test|src[./]test)")
     offenders = []
     for path in MAIN_ROOT.rglob("*.py"):
-        text = path.read_text(encoding="utf-8")
-        if pattern.search(text):
+        if _imports_test_tree(path.read_text(encoding="utf-8")):
             offenders.append(str(path.relative_to(REPO_ROOT)))
     assert offenders == []
+
+
+def test_import_gate_catches_real_offenders():
+    """负对照：真实测试/原型包导入形状必须被抓；main 内部与第三方导入必须放行。
+
+    旧正则只匹配不存在的 gold.test 子包，unit/contract/experimental 全漏（2026-11-09 评审 C1）。
+    """
+    offenders = [
+        "from com.sun.shensuan.gold.unit.acceptance import test_p1",
+        "import com.sun.shensuan.gold.experimental.proto",
+        "from com.sun.shensuan.gold import contract",
+        "import com.sun.shensuan.gold.architecture.test_architecture as ta",
+        'path = "src/test/python"',
+    ]
+    for source in offenders:
+        assert _imports_test_tree(source), f"漏检：{source}"
+    clean = [
+        "from com.sun.shensuan.gold.data import ingest",
+        "from com.sun.shensuan.gold.common.timeutil import iso",
+        "from com.sun.shensuan.gold.acceptance import p1",
+        "import pandas as pd",
+    ]
+    for source in clean:
+        assert not _imports_test_tree(source), f"误杀：{source}"
 
 
 def test_main_and_test_trees_exist():

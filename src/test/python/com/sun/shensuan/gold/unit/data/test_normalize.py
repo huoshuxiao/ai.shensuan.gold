@@ -167,6 +167,50 @@ def test_events_reject_bad_severity(repo_config):
     assert result.frame.iloc[0]["flags"] == "MANUAL"
 
 
+def test_events_severity_conflict_quarantined(repo_config):
+    """同 event_id 不同 severity 是登记冲突：整组剔除留档并判 RED，不静默取最后（评审 F6）。"""
+    spec = repo_config.data_sources.datasets["geo_events"]
+    raw = pd.DataFrame(
+        {
+            "event_id": ["e1", "e1", "e2"],
+            "date": ["2026-10-01", "2026-10-01", "2026-10-02"],
+            "type": ["war", "war", "sanction"],
+            "severity": ["3", "1", "2"],
+            "region": ["X", "X", "Y"],
+            "source_url": ["http://a", "http://a2", "http://b"],
+            "available_at": [
+                "2026-10-01T12:00:00+08:00",
+                "2026-10-01T12:00:00+08:00",
+                "2026-10-02T12:00:00+08:00",
+            ],
+        }
+    )
+    result = normalize_frame(raw, spec, pd.Timestamp("2026-10-03 08:00", tz="Asia/Shanghai"), "run-1")
+    assert result.status == Quality.RED
+    assert result.frame["event_id"].tolist() == ["e2"]
+    assert len(result.rejected) == 2
+    assert set(result.rejected["reject_reason"]) == {"SEVERITY_CONFLICT"}
+
+
+def test_events_same_severity_duplicate_dedups(repo_config):
+    """同 event_id 同 severity 的重复是正常重报：去重留一、不判红（F6 放行对照）。"""
+    spec = repo_config.data_sources.datasets["geo_events"]
+    raw = pd.DataFrame(
+        {
+            "event_id": ["e1", "e1"],
+            "date": ["2026-10-01", "2026-10-01"],
+            "type": ["war", "war"],
+            "severity": ["2", "2"],
+            "region": ["X", "X"],
+            "source_url": ["http://a", "http://a"],
+            "available_at": ["2026-10-01T12:00:00+08:00", "2026-10-01T12:00:00+08:00"],
+        }
+    )
+    result = normalize_frame(raw, spec, pd.Timestamp("2026-10-03 08:00", tz="Asia/Shanghai"), "run-1")
+    assert result.status == Quality.GREEN
+    assert len(result.frame) == 1
+
+
 def test_empty_events_is_visible_not_fake(repo_config):
     """验证空事件表返回 YELLOW 且带 EMPTY 标记、DataFrame 为空；空不等于无风险，必须可见。"""
     spec = repo_config.data_sources.datasets["geo_events"]
