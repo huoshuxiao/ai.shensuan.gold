@@ -88,6 +88,14 @@
 - 本文件为**追加优先**：已提交正文不删改；如需作废，追加新条款并注明作废对象。未提交阶段可就地修正，但要在交付说明中写“已就地改掉、无旧句可作废”。
 - 计数词（角色数、来源数、阶段数、验收条数）必须与正文一致；修改计数时同批扫掉派生说法。
 
+### 0.7 用户裁决（2026-11-09）：设计取舍、模型与动作空间
+
+- **设计取舍**：用户选「丙」——以本文件为行为单一事实源，先按本文件实现。`docs/国内黄金量化投资设计.md`（2026-10-29 评审与替代方案）**保留为参考文档**，不构成第二套规则；其头部「两者冲突时，以本文件§9 的修改清单为准」与 §9「未回写前……投资决策按本文件执行」两句自本裁决起作废（旧句保留留痕，不就地改写）。
+- **模型口径（作废 §11.3 模型行与附录 A `model` 行的多模型口径）**：只用 `qwen2.5:7b` 一个模型；`config/llm.yaml` 的 `model` 与 `models` 已同批改为单模型清单。§11.3 其余参数（`think=false`、`num_gpu=0`、单实例、超时与预算）不变。
+- **频率**：每日评审、每日决策（维持 §19.1 时间线，不采纳每周决策建议）。
+- **动作空间**：中性——不看多也不看空；可空仓、可买入后持有、可卖出等多维动作。**口径边界（不静默加硬/软）**：现行 §9 核心 70% 战略仓不变，「可空仓」落在卫星仓与风控/降级减仓层（卫星可至 0、`DEGRADED` 可给空仓建议）；若要求金边组合整体可空仓（核心也可为 0），属核心政策变更，需用户另行书面裁决。
+- 本裁决同批同步：`config/llm.yaml`、`CHANGELOG.md`、`看板.md` T-035、`docs/国内黄金量化投资设计.md` 末尾裁决记录。
+
 ---
 
 ## 1. 定位、目标与非目标
@@ -2833,6 +2841,7 @@ docker run --rm --network none -v "$PWD/data:/app/data:ro" gold-system:dev pytes
 | v0.9 | 2026-10-23 | §6.2 补「事件日历的第二个来源」：`data/news_events.py` 从快讯标题做确定性关键词抽取（规则表在 `strategy.yaml` 的 `geo.news_events`，`rules_version` 内嵌进 `event_id`，默认 dry-run，`--write` 才落盘，人工行不被覆盖）；`cli.py extract-events` 入口；§18.6 判据 13→14 条（新增 Q3 验收与数据同版本），并收紧三处被实跑抓出的尺子口径——C3 按 `key_columns` 判唯一、C5 中 `MANUAL` 只披露不降档、N1 分子按唯一日且 news/events 判 `SKIPPED` |
 | v1.0 | 2026-10-24 | 用户裁定三条数据口径（全部取“乙”）：①`cftc_gold` 两行多空净仓全 0 → series 分支按 `drop_all_zero_rows` 整行剔除（§6.6 补，默认关闭，GPR 的 0 是真实值）；②`shfe_au0` 618 行 `settlement=0` → price 分支按 `positive_columns` 整行剔除（§6.6 补）；③`spdr_gold` 覆盖率 50.5% → 标 `LOW_COVERAGE` 降 YELLOW，P2 的 SPDR 流量只展示不进分数。配套：规范化层新增「剔除即从主表移除」（`NormalizeResult.rejected` → `merge(removed=…)`）与「完整快照整表替换」（`authoritative_snapshot`，用于事件日历），修复被剔除行从历史并集复活；`geo.news_events` 新增人工复核排除表 `review_exclusions`（按 `content_hash` 点名，不改 `rules_version`）；§18.6 的 N1 增加「已披露才放行」一格。P1 程序化验收 `verdict=PASS`（139/0/19） |
 | v1.1 | 2026-10-25 | 新增 §6.9 数据问题自动识别与安全处置：`data/remediation.py` 读 `_quality.json`/规范化表/`rejected/`/原始快照/手工事件表，产出 `_remediation.json`（问题清单 + 每数据集 `display/feature/score/promotion_eligible`、`price_only`、禁读字段/特征/晋升、日历口径与下界标记）；`cli.py doctor [--write]` 退出码 0/1/2；`ingest` 自动落盘并把摘要写进 `_quality.json`，`coverage` 附带摘要。三种状态 `AUTO_RESOLVED/CONTAINED/NEEDS_HUMAN`；只隔离/降能力/标注/阻断晋升，不修源、不补值、不猜 severity。实测 12 条问题：2 自动消解 / 9 已封锁 / 1 待人工复核（4 条 `XGE-` 事件 severity）；P1 `accept` 判决不变 |
+| v1.2 | 2026-11-09 | 用户裁决（§0.7）：设计取丙（本文件为单一事实源，10-29 替代设计保留为参考文档）；模型收口为 `qwen2.5:7b` 单模型（§11.3 模型行与附录 A 多模型口径作废）；维持每日评审每日决策；动作空间中性多维（「可空仓」口径边界见 §0.7） |
 
 ---
 

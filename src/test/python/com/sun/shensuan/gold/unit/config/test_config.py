@@ -24,8 +24,8 @@ def test_load_repo_config(repo_config):
         "shfe_au0",
     }
     assert len(repo_config.llm.roles) == 9
-    assert repo_config.llm.model == "deepseek-r1:8b"
-    assert repo_config.llm.models == ["qwen3.5:9b", "qwen3.5:4b", "qwen2.5:7b", "deepseek-r1:8b"]
+    assert repo_config.llm.model == "qwen2.5:7b"
+    assert repo_config.llm.models == ["qwen2.5:7b"]
     assert repo_config.application.logging.retention_days == 7
     assert repo_config.config_hash.startswith("sha256:")
     assert repo_config.application.paths.live == "data/live"

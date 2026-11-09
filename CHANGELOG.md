@@ -871,3 +871,22 @@ pytest 终端本次未输出汇总行，条数取自 junit `testsuite` 属性。
 ### 未做
 
 - 未新增网络测试（T-016）；GDELT 非 429 成功路径未复测；未逐字段核对新行与交易所原始行情；未提交、未 push。
+
+## [裁决] 2026-11-09（T-035：设计取丙 + 单模型 qwen2.5:7b）
+
+### 变更
+
+- 用户裁决（看板 T-035、AGENTS §0.7）：以 `AGENTS.md` 为行为单一事实源，先按其实现；`docs/国内黄金量化投资设计.md` 保留为参考文档，其「以本文件§9 为准/投资决策按本文件执行/替代对应设计」三处优先句作废（旧句保留留痕）。
+- 模型收口：只用 `qwen2.5:7b` 一个模型。`config/llm.yaml` 的 `model` 由 `deepseek-r1:8b` 改为 `qwen2.5:7b`，`models` 由四模型清单改为单模型清单；§11.3 其余参数不变。
+- 频率与动作空间：维持每日评审、每日决策；动作空间中性（不看多也不看空，可空仓/买入持有/卖出）。「可空仓」边界：核心 70% 战略仓政策不变，空仓落在卫星与风控/降级减仓层；金边组合整体空仓需用户另行书面裁决。
+- `AGENTS.md` 追加 §0.7 与附录 H v1.2 行（追加优先，未删改已提交正文）；`unit/config/test_config.py:27-28` 断言同批更新。
+- `config_hash`：`sha256:0b5d90c1…` → `sha256:4eefa29a02929e5304f4ee0789ecf66389147ce21c85938665e7a1f9af7ceeda`；按 §18.6 Q3，须重跑 ingest 后再验收（后续步骤落地）。
+
+### 验证
+
+- `cli.py preflight` → EXIT=0，overall=YELLOW（内存闸，P1 不启 LLM）。
+- `pytest unit/config architecture` → `23 passed in 2.13s`，EXIT=0（改前 1 failed：旧模型断言；改后全绿）。
+
+### 风险 / 未做
+
+- 全量 pytest 本批未重跑（只跑 config+architecture 23 条）；gitignore 修复与源码补交、尺子修复、ingest/accept 重跑在后续步骤；本批未提交、未 push。
