@@ -229,10 +229,5 @@ logs/
 
 .idea/
 
-data/
-
-src/main/python/com/sun/shensuan/gold/common/__init__.py
-
-src/main/python/com/sun/shensuan/gold/acceptance/__init__.py
-
-src/main/python/com/sun/shensuan/gold/__init__.py
+# 根目录数据目录（锚定 /：裸 data/ 会误吞 src/main/.../gold/data/ 源码包，2026-11-09 评审 B2 修复）
+/data/

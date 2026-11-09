@@ -890,3 +890,19 @@ pytest 终端本次未输出汇总行，条数取自 junit `testsuite` 属性。
 ### 风险 / 未做
 
 - 全量 pytest 本批未重跑（只跑 config+architecture 23 条）；gitignore 修复与源码补交、尺子修复、ingest/accept 重跑在后续步骤；本批未提交、未 push。
+
+## [修复] 2026-11-09（T-036：gitignore 吞源码包修复与补交）
+
+### 变更
+
+- `.gitignore`：裸 `data/`（:232）改为 `/data/` 锚定根目录——旧规则把源码包 `src/main/.../gold/data/` 整体忽略，致 `ca3fbfe "P1 init"` 提交含 0 个数据层文件、克隆即 ImportError（评审 B2/F1）；同批删除对 3 个 `__init__.py` 的逐行忽略。
+- 补交：`gold/data/` 源码包 19 个文件、3 个 `__init__.py`、10 个测试文件（contract/data、integration/data、unit/data）。
+
+### 验证
+
+- `git check-ignore -v` 现读：`normalize.py`/`__init__.py` 不再命中；根 `data/normalized/_quality.json` 仍由 `/data/` 忽略。
+- 克隆完整性闸与全量测试读数见本批 commit 后追加（若克隆 pytest 失败则本条不得标 DONE）。
+
+### 风险 / 未做
+
+- 不 push；历史提交 `ca3fbfe` 的不完整状态不可改写（不 amend），由本批补交修复。
