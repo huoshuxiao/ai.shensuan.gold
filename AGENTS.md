@@ -656,6 +656,14 @@ report_hash=sha256:37b88a942e7282f5c07f570e5e9e78dbff2543714fb92e675a7e80c3dfb4a
 - `*:CALENDAR_APPROX`：`cftc_gold/comex_gc/gpr/spdr_gold/us10y/usdcny/usdcny_mid/wti_cl` 仍按周一至周五近似，覆盖率只是保守下界；本条只标注，**不解决**官方日历缺失。
 - `geo_events:UNREVIEWED_EVENT_SEVERITY`：4 条 `XGE-` 事件待人工复核；复核前 `GEO_EVENT_SEVERITY` 禁入地缘分数与加仓依据。
 
+**现状读数同步（2026-11-11 23:21 CST 现跑，T-041）**：上面「现状读数」代码块与「逐项读数」两节（标注 2026-10-25 23:28）是旧读数，按 §0.6 追加优先原样保留留痕、未就地改写，其中随批次漂移的读数由本段作废。现跑 `doctor`（不带 `--write`，纯读取）→ `DOCTOR_EXIT=1`、`overall=NEEDS_HUMAN`：
+
+- `counts` 现为 `{"AUTO_RESOLVED":2,"CONTAINED":8,"NEEDS_HUMAN":1}`，共 **11 条（旧句的 12 条作废）**：少的那条正是 `wti_cl:RECENT_BAD_ROWS`——`2026-10-22` 那个坏日已滑出 §6.6「近期坏行窗口」（尾部 5 个有效行里最早 `as_of` 起算，本批 `as_of_max=2026-11-11`）。同批 `_quality.json` 现读 `wti_cl` 状态为 `DEGRADED`、`red=[]`；这与「边界」段一致——**滑出窗口不等于源缺陷被修好**。
+- `report_hash` 现为 `sha256:5ec7f396cb70333f26bcbe0377858e3c57eb71543af7303e8f9c7f6caecb964d`（旧 `sha256:37b88a942e7282f5…` 作废，内容哈希随数据批次变，§6.9「`report_hash` 不含 `generated_at`」的口径不变）；`config_hash` 仍是 `sha256:0946643d…`，`config_hash_match=true`。
+- 未变的读数：`blocked_datasets=[comex_gc, geo_events, gpr, spdr_gold, us10y, wti_cl]`（6 个）；`review_queue` 仍是 4 条 `XGE-` 事件（severity 全为 2，无 3 级）；`*:CALENDAR_APPROX` 仍覆盖 8 个数据集（`cftc_gold/comex_gc/gpr/spdr_gold/us10y/usdcny/usdcny_mid/wti_cl`）；`etf_159934`/`shfe_au0` 的 `HISTORICAL_ZERO_FLOW` 零行仍是 4/5。
+- 逐项更新（旧句对应读数作废）：`comex_gc`/`wti_cl` 的 `PROVISIONAL` 现为各 1 行 `2026-11-11`，`available_at=2026-11-12T06:00:00+08:00` **尚未到期**，动作为 `WAIT_UNTIL_AVAILABLE_AT`（旧句 `RERUN_INGEST_TO_FINALIZE` 只适用于到期后）；`comex_gc/wti_cl:ZERO_FLOW` 的 `rows/zero_rows` 现为 2,565/5,130 与 7,652/15,304；`spdr_gold:LOW_COVERAGE` 的 `weekday_gaps=2830`；`gpr:REVISED_ONLY` 的原始快照 21 份、`2026-10-19T23:43:55+08:00..2026-11-11T22:18:19+08:00`；`us10y:RECENT_MISSING_ROWS` 的 `as_of_max=2026-11-10`、`recent_missing_rows=1`、`stale_days=1`。
+- 同批配套读数：`accept --stage P1` → `ACCEPT_EXIT=0`、`verdict=PASS`、`counts={"FAIL":0,"PASS":142,"SKIPPED":17}`（159 条判据 / 15 项 `rule_id`：C1–C7、N1–N3、Q1–Q4、S1）；上面「边界」段旧句写的「§18.6 的 14 条判据」按 §18.6 的 2026-11-09 计数注更新为 15 项 / 159 条。`coverage` → `COV_EXIT=0`、`global_status=OK`、`red=[]`、`missing=[]`、`degraded=[comex_gc, wti_cl, spdr_gold, us10y, gpr]`、启用数据集 16；批次 `run_id=daily-20261111-221721`、`reference_date=2026-11-11`、`scope=full`。
+
 **边界（不得写成“已修复”）**
 
 - 本机制不改变源站缺陷：WTI/COMEX 零成交量与零持仓仍存在，GPR 历史仍无 vintage，SPDR 历史空洞仍在，美国/外汇官方日历仍未接入。
@@ -2847,6 +2855,7 @@ docker run --rm --network none -v "$PWD/data:/app/data:ro" gold-system:dev pytes
 | v1.2 | 2026-11-09 | 用户裁决（§0.7）：设计取丙（本文件为单一事实源，10-29 替代设计保留为参考文档）；模型收口为 `qwen2.5:7b` 单模型（§11.3 模型行与附录 A 多模型口径作废）；维持每日评审每日决策；动作空间中性多维（「可空仓」口径边界见 §0.7） |
 | v1.3 | 2026-11-09 | 评审修复（T-037）：§18.6 新增 Q4 批次墙钟新鲜闸（判据 14→15 项，158→159 条）；C4 对两条汇率源生效（`price_min/max=5–10`）；C1 架构导入闸改 AST 判定+负对照；F2 事件合并保留 `severity_reviewed` 等额外列；F3 日历缺 sha256 判不可用；F6 事件同 id severity 冲突整组剔除留档判 RED。全量 pytest 224 passed EXIT=0；accept 现跑 Q3/Q4 双判红（配置漂移+批次陈旧，待重跑 ingest 消解） |
 | v1.4 | 2026-11-09 | P1 签收（T-038/T-039）：重跑入库接到 2026-11-09，accept 复跑 `verdict=PASS`（142/0/17，159 条/15 项），Q3/Q4 消解，global_status=OK；**用户签收 P1 通过（甲）**，里程碑转 DONE；cron 取手动（乙）。头部状态行「等待用户签收」为旧读数，以本行为准。事件 severity 复核（4 条）与 R-006 五偏差确认转 P2 前置 |
+| v1.5 | 2026-11-11 | 读数同步（T-041，纯文档、无判据/阈值/数据源变化）：§6.9 追加「现状读数同步」段，作废 2026-10-25 块里随批次漂移的读数——`counts` 由 12 条（2/9/1）变为 11 条（2/8/1，`wti_cl:RECENT_BAD_ROWS` 因 2026-10-22 坏日滑出近期窗口而不再出现，源缺陷未修）、`report_hash` 现为 `sha256:5ec7f396…`、`PROVISIONAL` 现为 `2026-11-11` 各 1 行且未到期改 `WAIT_UNTIL_AVAILABLE_AT`、`ZERO_FLOW`/`LOW_COVERAGE`/`REVISED_ONLY`/`RECENT_MISSING_ROWS` 逐项读数按本批更新；旧句保留留痕。看板头部同批补现行读数（accept 142/0/17、159 条/15 项、pytest `229 passed` EXIT=0、P1 里程碑=DONE、已 commit 未 push）。全量 `pytest` → `229 passed, 16 deselected` EXIT=0 |
 
 ---
 

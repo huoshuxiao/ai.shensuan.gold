@@ -990,3 +990,30 @@ pytest 终端本次未输出汇总行，条数取自 junit `testsuite` 属性。
 
 - cron 仍不装（乙）；`daily` 是 P7 自动化的前置积木，尚未接节假日判断与失败写 ISSUE。
 - 桩测试覆盖编排逻辑，但「真跑才暴露的 run-id 碰撞」教训说明后续对 daily 的任何改动仍需一次真实跑兜底。
+
+## [文档] 2026-11-11 23:2x（T-041：同步两处过期读数 · 看板头部与 AGENTS §6.9）
+
+关联任务：`看板.md` T-041、里程碑 P1 行；判据出处 `AGENTS.md` §6.9、§18.6、附录H v1.5。
+用户指令：「修复看板头部和 AGENTS §6.9 的过期读数」。
+
+### 变更（纯追加，旧句一字未动）
+
+- `看板.md` 头部：第 3–4 行（2026-10-25 23:30 落笔）保留留痕，新增第 6–7 行「头部读数同步」，作废其中随批次漂移的八项读数（①–⑧）——更新时间、`accept` 判决（`139/0/19`、`158 条 / 14 项` → `142/0/17`、`159 条 / 15 项`）、`reference_date`/`run_id`、P1 里程碑（「待用户签收（标 PENDING）」→ DONE，用户 11-09 签收甲）、全量 pytest 条数（`215 passed`→`229 passed`）、`doctor` 问题条数（12 条 2/9/1 → 11 条 2/8/1）、`coverage` 五项读数、提交状态（「本地未提交」→ T-035–T-040 已 commit、HEAD `d117c68`、仍未 push）；⑨ 单独声明「只同步读数、不改索引」，第 3 行各节 §编号指向未逐条重验。
+- `AGENTS.md` §6.9：在 2026-10-25「现状读数」块与「逐项读数」之后追加「现状读数同步」段。作废三处：`counts` 12 条 → 11 条（少的是 `wti_cl:RECENT_BAD_ROWS`，`2026-10-22` 坏日已滑出 §6.6 近期坏行窗口；本批 `wti_cl` 现读 `DEGRADED`、`red=[]`，**滑出窗口不等于源缺陷被修好**）、`report_hash` `37b88a94…` → `5ec7f396…`、`PROVISIONAL` 由「各 1 行 `2026-10-23`、`RERUN_INGEST_TO_FINALIZE`」改为「各 1 行 `2026-11-11`、`available_at=2026-11-12T06:00+08:00` 未到期、`WAIT_UNTIL_AVAILABLE_AT`」；逐项更新 `ZERO_FLOW` 行数（2,565/5,130 与 7,652/15,304）、`spdr_gold` `weekday_gaps=2830`、`gpr` 快照 21 份（至 `2026-11-11T22:18:19`）、`us10y` `as_of_max=2026-11-10`。未变读数照抄：`overall=NEEDS_HUMAN`、封锁 6 个数据集、`review_queue` 4 条 `XGE-`（severity 全 2）、`*:CALENDAR_APPROX` 8 个数据集、`HISTORICAL_ZERO_FLOW` 零行 4/5。同时把 §6.9「边界」段旧句「§18.6 的 14 条判据」按 §18.6 的 11-09 计数注对到 15 项 / 159 条。
+- `AGENTS.md` 附录H 新增 v1.5 一行（沿 T-035/T-037/T-039 既有做法：版本号只进附录H）。
+- 本批未动：`README.md`、`PROJECT.md`、`config/*.yaml`、`src/**`、`data/**`（无代码/判据/阈值/数据源变化，故不回写结构索引）。
+
+### 验证
+
+- `/usr/bin/python3.10 -m pytest` → 改文档前 `229 passed, 16 deselected in 31.60s`、改文档后 `229 passed, 16 deselected in 28.06s`，均 EXIT=0。
+- `/usr/bin/python3.10 .../cli.py accept --stage P1` → `ACCEPT_EXIT=0`、`verdict=PASS`、`counts={"FAIL":0,"PASS":142,"SKIPPED":17}`、`reference_date=2026-11-11`、`quality_run_id=daily-20261111-221721`、`n_checks=159`、`n_rule_ids=15`。
+- `/usr/bin/python3.10 .../cli.py doctor`（不带 `--write`）→ `DOCTOR_EXIT=1`、`overall=NEEDS_HUMAN`、`counts={"AUTO_RESOLVED":2,"CONTAINED":8,"NEEDS_HUMAN":1}`（11 条）、`config_hash_match=True`、`review_queue=4`。
+- `/usr/bin/python3.10 .../cli.py coverage` → `COV_EXIT=0`、`global_status=OK`、`red=[]`、`missing=[]`、`degraded=[comex_gc,wti_cl,spdr_gold,us10y,gpr]`、启用数据集 16。
+- 纯追加自查：`git diff --numstat` → `AGENTS.md`/`看板.md`/`CHANGELOG.md` 三文件删除行数合计 0（新增行只落在追加段落内）。
+
+### 风险 / 未做
+
+- 未重跑克隆闸（`git archive` + 临时目录 pytest，读数属 T-036 `215 passed`，旧读数未重读）与网络冒烟 16 条。
+- `AGENTS.md` §0.6 的版本号长行仍只列到 `v1.1`（`v1.2`–`v1.5` 只在附录H）——这是既有写法，本批未夹带修复；若要收口请另行指令。
+- `看板.md` 第 3 行其余索引句（各节 §编号指向）未逐条重验，只同步了读数。
+- T-025 汇率观察仍未推进：`daily` 里的 `rate` 在 22:17 跑，晚间必然取折算价，测不到「SAFE 中间价当日 09:15 后可见」那一腿。
