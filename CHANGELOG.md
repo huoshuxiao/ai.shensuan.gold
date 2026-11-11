@@ -1017,3 +1017,42 @@ pytest 终端本次未输出汇总行，条数取自 junit `testsuite` 属性。
 - `AGENTS.md` §0.6 的版本号长行仍只列到 `v1.1`（`v1.2`–`v1.5` 只在附录H）——这是既有写法，本批未夹带修复；若要收口请另行指令。
 - `看板.md` 第 3 行其余索引句（各节 §编号指向）未逐条重验，只同步了读数。
 - T-025 汇率观察仍未推进：`daily` 里的 `rate` 在 22:17 跑，晚间必然取折算价，测不到「SAFE 中间价当日 09:15 后可见」那一腿。
+
+## [评审] 2026-11-11 23:44（T-042：P2 设计评审 · 三阻断待裁决）
+
+关联任务：`看板.md` T-042、R-015、里程碑 P2 行下的评审注；评审产物 `docs/P2评审.md`（155 行）；判据出处 `AGENTS.md` §6.9、§7、§8、§9、§18.3 P2 表。
+用户指令：「P1已完成，P2评审」。
+
+### 新增
+
+- `docs/P2评审.md`：P2 能不能按字面实现的评审。结构为 0 一页结论 / 1 证据来源 / 2 阻断 B1–B3 / 3 重要 M1–M6 / 4 次要 L1–L5 / 5 实施顺序 / 6 待裁决表（甲乙丙＋推荐） / 7 未查。
+- `看板.md`：T-042 任务行、R-015（PENDING，三阻断）、里程碑表下新增一条 P2 评审注（P2 里程碑保持 `TODO`：评审≠开工）。
+
+### 三条阻断（本批只提出，不代用户选）
+
+- **B1 封锁组与缺失组口径互斥**：§6.9 硬约束 2 的字面读法是「数据集 `score_eligible=false` → 其**整组**权重剔除」，§8.2 又是「缺失超过 2 组 → `DEGRADED`」。现读 `capabilities` 有 6 个数据集 `score_eligible=false`，分属 cross_market/macro/flows/geopolitics 四组 ⇒ 按字面 P2 上线第一天就常态 `DEGRADED`（只减不加），仓位带与 `T_det` 失去意义；按「组内特征级重归一」读法则四组都还有可用特征、可正常出分。另发现 `DEGRADED` 一名三义（§4.3 模式／§8.2 后果／§7.4 行级标记）。
+- **B2 仓位闸的输入不存在**：§8.3 `min(H, 当前卫星仓)`、§9.3 需 `core/cash_floor`、§9.5 需历史高水位、§9.6 需 `Δsatellite` 序列，而账本/NAV 是 P4 交付 ⇒ P2 要么静默跳过风控，要么读一个不存在的账本（＝编数）。
+- **B3 `T_det` 无定义**：§2.2/§4.3/§11.7 都把它当兜底交付物，§8 只算到 `[L,H]` 区间，没有任何取点规则 ⇒ P4 决策卡与 P5 降级回退悬空。
+
+### 六项重要（要点）
+
+- M1 `features/registry.yaml` 全盘不存在（`find` → 0 命中），且首批 fact_id 里 `MAC_TIPS10Y`/`MAC_DXY_PROXY`/`GEO_EVENT_SEVERITY` 先天无源或被封锁。
+- M2 §8.2「每组标准化到 [-100,+100]」无公式无配置键，可复现闸测不到分数层。
+- M3 单位冲突：`regime.hysteresis.band: 0.05`（比例）对 `low_pct/high_pct: 30/70`（百分数）；`VOL_PCT_1Y` 的分位窗口与 `target_vol_annual` 的年化系数（√252/√250）在 `strategy.yaml` 里没有键。
+- M4 跨市场 PIT 错日：境外 `comex_gc/wti_cl` 现读各有 1 行 `2026-11-11` `PROVISIONAL`（`available_at=2026-11-12T06:00`），07:00 冻结时境外只能用 11-10 而境内可用 11-11 ⇒ `XMK_*` 的对齐规则必须先声明。
+- M5 `contrarian.enabled` 一枚布尔管格言两半句（§8.4.1 前半句降险 v1 允许、后半句加仓须过 §12.7）⇒ 须拆 `reduce/add`。
+- M6 P2 无验收闸：`accept --stage P2` 现跑 → EXIT=2 `verdict=ERROR`，而 §18.3 P2 表 8 行验收项全无程序判据。
+
+### 验证
+
+- `/usr/bin/python3.10 -m pytest` → `229 passed, 16 deselected`，EXIT=0（本批只加文档，未动代码）。
+- `cli.py accept --stage P1` → EXIT=0 `verdict=PASS`（142/0/17，159 条/15 项）；`accept --stage P2` → EXIT=2 `verdict=ERROR`。
+- `cli.py doctor` → EXIT=1 `overall=NEEDS_HUMAN`（11 条 2/8/1）；`_remediation.json` `capabilities` 逐数据集现读 `display/feature/score/promotion` 与 `blocked_*` 三项清单已抄进评审文档 §1。
+- 静态现读：`loader.py:755`（strategy 只校验含 `weights`）、`remediation.py:310`（`severity_reviewed` 仅在列存在时读）、`common/timeutil.py:289`（`filter_fact_pack` 已存在）、`PROJECT.md:188-191`（四包标计划）、`ls src/main/.../gold` 无 `features/regime/strategy/risk`、`data/manual/geo_events.csv` 与 `data/normalized/geo_events.csv` 表头均无 `severity_reviewed`、`etf_518880.csv` 有 `amount`／`sge_au9999.csv` 无量额／`comex_gc.csv` 量额被 `price_only` 禁读。
+
+### 风险 / 未做
+
+- 「四组被剔→当天 DEGRADED」是**规则级推演**，不是程序输出（P2 无代码可跑）；评审文档 §7 已如此标注。
+- 本批不实现任何 P2 代码、不改 `AGENTS.md`/`config`——B1/B2/B3 属口径选择，按 §0.2「不得自行选择更宽松的一侧」等用户裁决（R-015）。
+- P2 前置仍未清：R-005（4 条事件 severity 复核）、R-006（五偏差确认）。
+- 未重跑克隆闸与网络冒烟。
