@@ -970,3 +970,23 @@ pytest 终端本次未输出汇总行，条数取自 junit `testsuite` 属性。
 ### 风险 / 未做
 
 - 无自动监控：数据停了需人工发现（用户已知悉，取乙）；T-025 汇率观察需续观 3–5 交易日（第 1 天已 GREEN）。
+
+## [功能] 2026-11-11（T-040：`cli.py daily` 一键日更 · 评审取「简化命令」甲）
+
+### 变更
+
+- 评审结论：日更两方案「简化命令 vs 装 cron」，用户选**甲（简化命令）**。理由：cron 属 P7（需节假日闸+失败写 ISSUE+告警），现在裸装是半成品；`daily` 命令把 5 条长命令压成 1 条、仍手动触发、不碰系统，且正是将来 cron 要调的载荷。
+- 新增 `cli.py daily [--run-id …]`：顺序跑 preflight→ingest→accept→doctor→rate；preflight/ingest 非 0 硬停（没有新数据不验收），否则退出码取 accept；doctor 的 NEEDS_HUMAN 与 rate 读数只进汇总。
+- **默认 run-id 含时分秒**（`daily-YYYYMMDD-HHMMSS`）：真跑首轮暴露——`daily-YYYYMMDD` 与当日 20:22 的手动 ingest 撞了原始快照 append-only，17 源全误判 FAILED 并覆写 `_quality.json`。加时间戳后消除碰撞。
+- PROJECT.md `cli.py` 作用表、看板 T-040 同批。
+
+### 验证
+
+- 先写失败测试再实现：`command_daily` 不存在（4 failed）→ 实现后 14 passed；run-id 无时间戳（1 failed）→ 加 HHMMSS 后转绿。
+- 全量 `pytest` → `229 passed, 16 deselected`，EXIT=0。
+- 真实端到端：`cli.py daily` → DAILY_EXIT=0，汇总 `overall=PASS`；`accept` 复跑 → EXIT=0 `verdict=PASS`（142/0/17），`quality_run_id=daily-20261111-221721`（含时间戳，无碰撞），`_quality.json` 恢复健康全量。
+
+### 风险 / 未做
+
+- cron 仍不装（乙）；`daily` 是 P7 自动化的前置积木，尚未接节假日判断与失败写 ISSUE。
+- 桩测试覆盖编排逻辑，但「真跑才暴露的 run-id 碰撞」教训说明后续对 daily 的任何改动仍需一次真实跑兜底。

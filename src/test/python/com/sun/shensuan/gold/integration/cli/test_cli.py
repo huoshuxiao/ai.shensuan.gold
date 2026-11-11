@@ -207,3 +207,89 @@ def test_coverage_includes_remediation_summary(tmp_config, capsys):
     assert payload["remediation"]["overall"] == "CONTAINED"
     assert payload["remediation"]["report_hash"] == "sha256:abc"
     assert payload["remediation"]["next_actions"] == ["PRICE_ONLY_BLOCK_VOLUME_FIELDS"]
+
+
+def _stub_step(calls, name, code):
+    """造一个记录调用顺序并返回指定退出码的命令替身（离线编排测试用）。"""
+    def stub(config, args):
+        """替身命令：把自身名字追加进 calls 并返回预定退出码 code。"""
+        calls.append(name)
+        return code
+    return stub
+
+
+def test_daily_runs_all_steps_in_order(tmp_config, monkeypatch, capsys):
+    """daily 顺序跑五步；doctor=1（NEEDS_HUMAN）是预期信号，不拖垮 daily（accept=0 → exit 0）。"""
+    import com.sun.shensuan.gold.cli as cli_mod
+
+    calls = []
+    for name, code in [
+        ("command_preflight", 0),
+        ("command_ingest", 0),
+        ("command_accept", 0),
+        ("command_doctor", 1),
+        ("command_rate", 0),
+    ]:
+        monkeypatch.setattr(cli_mod, name, _stub_step(calls, name, code))
+    exit_code = cli_mod.command_daily(tmp_config, Namespace(run_id=None))
+    assert calls == [
+        "command_preflight", "command_ingest", "command_accept", "command_doctor", "command_rate",
+    ]
+    assert exit_code == 0
+    assert "daily" in capsys.readouterr().out
+
+
+def test_daily_stops_at_preflight(tmp_config, monkeypatch):
+    """preflight 非 0 → 硬停，ingest 不得执行（失败关闭）。"""
+    import com.sun.shensuan.gold.cli as cli_mod
+
+    calls = []
+    monkeypatch.setattr(cli_mod, "command_preflight", _stub_step(calls, "preflight", 2))
+    monkeypatch.setattr(cli_mod, "command_ingest", _stub_step(calls, "ingest", 0))
+    exit_code = cli_mod.command_daily(tmp_config, Namespace(run_id=None))
+    assert calls == ["preflight"]
+    assert exit_code == 2
+
+
+def test_daily_stops_at_ingest(tmp_config, monkeypatch):
+    """ingest 非 0 → 硬停，accept/doctor/rate 不得执行（没有新数据不验收）。"""
+    import com.sun.shensuan.gold.cli as cli_mod
+
+    calls = []
+    monkeypatch.setattr(cli_mod, "command_preflight", _stub_step(calls, "preflight", 0))
+    monkeypatch.setattr(cli_mod, "command_ingest", _stub_step(calls, "ingest", 2))
+    monkeypatch.setattr(cli_mod, "command_accept", _stub_step(calls, "accept", 0))
+    exit_code = cli_mod.command_daily(tmp_config, Namespace(run_id=None))
+    assert calls == ["preflight", "ingest"]
+    assert exit_code == 2
+
+
+def test_daily_accept_fail_continues_and_signals(tmp_config, monkeypatch):
+    """accept=1（判红）仍跑完 doctor/rate，但 daily 退出码反映 accept 红（exit 1）。"""
+    import com.sun.shensuan.gold.cli as cli_mod
+
+    calls = []
+    for name, code in [
+        ("command_preflight", 0),
+        ("command_ingest", 0),
+        ("command_accept", 1),
+        ("command_doctor", 1),
+        ("command_rate", 0),
+    ]:
+        monkeypatch.setattr(cli_mod, name, _stub_step(calls, name, code))
+    exit_code = cli_mod.command_daily(tmp_config, Namespace(run_id=None))
+    assert calls == ["command_preflight", "command_ingest", "command_accept", "command_doctor", "command_rate"]
+    assert exit_code == 1
+
+
+def test_daily_default_run_id_has_time_component(tmp_config, monkeypatch, capsys):
+    """默认 run-id 必须含时分秒：否则同日重跑撞原始快照 append-only，全源误判 FAILED（2026-11-11 真跑抓出）。"""
+    import re
+
+    import com.sun.shensuan.gold.cli as cli_mod
+
+    for name in ["command_preflight", "command_ingest", "command_accept", "command_doctor", "command_rate"]:
+        monkeypatch.setattr(cli_mod, name, _stub_step([], name, 0))
+    cli_mod.command_daily(tmp_config, Namespace(run_id=None))
+    out = capsys.readouterr().out
+    assert re.search(r'"run_id":\s*"daily-\d{8}-\d{6}"', out), "daily 默认 run-id 需为 daily-YYYYMMDD-HHMMSS"

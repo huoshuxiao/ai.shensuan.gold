@@ -1,4 +1,4 @@
-"""P1 CLI：preflight / ingest / normalize / status / coverage / rate / calendar / list-datasets / validate-manual / extract-events / accept / doctor。
+"""P1 CLI：preflight / ingest / normalize / status / coverage / rate / calendar / list-datasets / validate-manual / extract-events / accept / doctor / daily。
 
 职责：为 P1 数据层提供可脚本化入口；每个子命令只做参数解析与调用，业务逻辑
 留在 ``data`` 包。所有输出统一为 JSON（``ensure_ascii=False``），供 cron、
@@ -621,6 +621,49 @@ def command_doctor(config: LoadedConfig, args) -> int:
     return 0 if report.get("overall") in {"CLEAN", "AUTO_CONTAINED"} else 1
 
 
+def command_daily(config: LoadedConfig, args) -> int:
+    """一键日更：preflight→ingest→accept→doctor→rate，硬失败即停，末尾汇总。
+
+    Args:
+        config: 已加载配置。
+        args: 含可选 ``run_id``（默认 ``daily-YYYYMMDD``）。
+
+    Returns:
+        退出码：preflight/ingest 非 0 → 原码硬停（没有新数据不验收）；
+        否则取 accept 的退出码（0=PASS，1=判红，2=异常）。doctor 的
+        NEEDS_HUMAN（1）与 rate 读数只进汇总，不改变 daily 退出码。
+
+    Notes:
+        仍手动触发（不装 cron）；本命令是将来 P7 cron 的载荷。各子命令
+        自身的 JSON 照常输出，末尾追加一条 daily 汇总 JSON。
+    """
+    today = now_shanghai().date().isoformat()
+    stamp = now_shanghai().strftime("%H%M%S")
+    run_id = getattr(args, "run_id", None) or f"daily-{today.replace('-', '')}-{stamp}"
+    steps: list[dict] = []
+
+    def run(name, func, ns):
+        """跑一个子命令并把退出码记进 steps；返回该退出码供调用方判停。"""
+        code = func(config, ns)
+        steps.append({"step": name, "exit": code})
+        return code
+
+    code = run("preflight", command_preflight, None)
+    if code != 0:
+        _print_json({"daily": steps, "overall": "STOPPED", "stopped_at": "preflight", "run_id": run_id})
+        return code
+    code = run("ingest", command_ingest, argparse.Namespace(datasets=None, start=None, end=None, run_id=run_id))
+    if code != 0:
+        _print_json({"daily": steps, "overall": "STOPPED", "stopped_at": "ingest", "run_id": run_id})
+        return code
+    accept_code = run("accept", command_accept, argparse.Namespace(stage="P1", date=None))
+    run("doctor", command_doctor, argparse.Namespace(write=True))
+    run("rate", command_rate, argparse.Namespace(date=today))
+    overall = "PASS" if accept_code == 0 else ("FAIL" if accept_code == 1 else "ERROR")
+    _print_json({"daily": steps, "overall": overall, "run_id": run_id, "date": today})
+    return accept_code
+
+
 def build_parser() -> argparse.ArgumentParser:
     """构建 argparse 解析器与全部子命令参数。
 
@@ -656,6 +699,8 @@ def build_parser() -> argparse.ArgumentParser:
     accept.add_argument("--date", help="验收基准日 YYYY-MM-DD；默认取质量报告的 reference_date")
     doctor = sub.add_parser("doctor", help="自动识别数据问题并生成处置/能力清单（默认不写盘）")
     doctor.add_argument("--write", action="store_true", help="原子写 data/normalized/_remediation.json")
+    daily = sub.add_parser("daily", help="一键日更：preflight→ingest→accept→doctor→rate（手动触发）")
+    daily.add_argument("--run-id", help="指定 run_id（默认 daily-YYYYMMDD）")
     return parser
 
 
@@ -672,6 +717,7 @@ COMMANDS = {
     "validate-manual": command_validate_manual,
     "accept": command_accept,
     "doctor": command_doctor,
+    "daily": command_daily,
 }
 
 
