@@ -2348,6 +2348,57 @@ docker run --rm --network none -v "$PWD/data:/app/data:ro" gold-system:dev pytes
 - 休市日：不产生决策；只跑健康检查/补数据。
 - 日历缺失/冲突→`PENDING`，人工确认。
 
+### 19.11 日更互斥、汇总落盘与阶段耗时（`daily_summary.json` / `.daily.lock`，2026-11-12 补）
+
+> 用户指令（2026-11-12）：「监控并优化 `cli.py daily`」。本小节只覆盖**运行可观测性与并发安全**，
+> 不改任何判据、阈值、数据源或仓位口径（§18.6 的 P1 判据与 `config_hash` 不受影响）。
+> §19.2 的 2026-10-25「现状更正」句未列 `daily`，那是旧读数——`daily` 已于 T-040 实现、本批扩展，以本节为准（旧句保留留痕）。
+
+**互斥锁（规范）**
+
+- `daily` 起跑前必须原子取得 `data/.daily.lock`（`O_CREAT|O_EXCL`，内容为 `"<pid> <ISO8601 启动时刻>"`）；
+  锁被**存活进程**持有时必须硬停：退出码 `3`（`EXIT_BUSY`），一个子命令都不执行、不写任何产物。
+- 锁内 pid 已不存在（`ProcessLookupError`）视为陈旧锁：删除后重取一次；`PermissionError` 属于真实存在，
+  不得当作陈旧锁删除。
+- `--force` 可以越过活锁，但**不取得所有权**：结束时绝不删除别人的锁；越权运行的覆写风险由操作者承担。
+- **Why**：2026-11-11 真跑事故——`daily-YYYYMMDD` 与当日 20:22 手动 `ingest` 撞 run-id，17 源全误判
+  `FAILED` 并把 `_quality.json` 覆写成失败态（加时间戳只解决了同日碰撞，没解决并发）。
+
+**汇总落盘（规范）**
+
+- `daily` 结束必须原子写 `data/decisions/<YYYY-MM-DD>/daily_summary.json`（`schema_version="1"`），最小字段：
+  `run_id/date/started_at/ended_at/total_ms/daily[].{step,exit,duration_ms}/step_ms/overall/stopped_at/exit_code/
+  scope/config_hash/lock.{acquired,owned,reason}/rate_observation/artifacts.{quality,remediation,pipeline_status,log_dir}`。
+- 无人值守（P7 cron）只读得到文件读不到 stdout，因此**汇总必须落盘**；stdout 仍打印同一份 JSON。
+- 落盘失败不改退出码，但要写 `summary_error`（打死日链比丢汇总更糟）。
+- `daily --datasets a,b` 是子集运行：必须透传给 `ingest` 并在汇总标 `scope="subset"`，禁止冒充全量（§6.6 质量报告范围口径）。
+
+**阶段耗时与日志（规范）**
+
+- 每个子命令的耗时用 `time.perf_counter()` 计算并写进汇总与日志；日志行固定为
+  `message="daily step"`、`extra={run_id, stage, status:"exit_<码>", duration_ms}`（§15.7 要求阶段/状态/耗时/错误码齐全）。
+- 单源耗时看 `data/decisions/<date>/pipeline_status.json` 的节点级 `duration_ms`；`_quality.json` 本身**没有**耗时字段（2026-11-12 现读：`sorted(k)` 无 duration/time/elapse，16 个数据集 `new_rows` 无一流水为 0），所以「哪个源慢」不能靠质量报告回答。
+
+**`rate_observation`（与 T-025 观察挂钩）**
+
+- `phase` 三档：`pre_0930` / `intraday`（09:30–18:00）/ `post_1800`；`observation_valid = (phase == "intraday")`。
+- 依据 §5.2 同日兜底：18:00 前折算价未转正才会落到 SAFE 中间价，故只有 09:30–18:00 取到当日行才证明
+  `same_day_0915` 成立；晚间跑必然取折算价，**测不到 SAFE 腿**，看板 T-025 的观察天数不得因此推进。
+- 现状读数（2026-11-12 现跑）：22:03 那次 `daily` 属 `post_1800`，即 `observation_valid=false`——T-025 自
+  2026-11-09 起「第 1 天」之后没有被有效推进过，原因是晚间触发而不是数据故障。
+
+**验收（`unit`/`integration` 层，`integration/cli/test_cli.py`）**
+
+| 判据 | 挡的是哪一种说谎 |
+|---|---|
+| 汇总每步含 `duration_ms` 且 `total_ms ≥ Σ` | 只有退出码、看不出慢在哪一步 |
+| `daily_summary.json` 真的落盘且含 `run_id/config_hash/artifacts` | 「跑了但没凭证」；旧行为只打印到 stdout |
+| 活锁 → 退出码 3、子命令调用列表为空、`_quality.json` 哈希不变 | 并发覆写质量报告（11-11 事故复发） |
+| 陈旧锁 → 清理后照常跑完并释放 | 锁把正常日更永久堵死 |
+| 日志含 5 条 `daily step` 且逐条带 `duration_ms`/`run_id` | §15.7 的阶段耗时永远不落盘（现读旧行为只有 `ingest outcome`） |
+| `--datasets` 透传且 `scope=subset` | 子集冒充全量质量报告 |
+| `phase/observation_valid` 按时点翻转 | 晚间跑假装推进 T-025 观察 |
+
 ---
 
 ## 20. Qoder / opencode / RD-Agent 行为规则
@@ -2856,6 +2907,7 @@ docker run --rm --network none -v "$PWD/data:/app/data:ro" gold-system:dev pytes
 | v1.3 | 2026-11-09 | 评审修复（T-037）：§18.6 新增 Q4 批次墙钟新鲜闸（判据 14→15 项，158→159 条）；C4 对两条汇率源生效（`price_min/max=5–10`）；C1 架构导入闸改 AST 判定+负对照；F2 事件合并保留 `severity_reviewed` 等额外列；F3 日历缺 sha256 判不可用；F6 事件同 id severity 冲突整组剔除留档判 RED。全量 pytest 224 passed EXIT=0；accept 现跑 Q3/Q4 双判红（配置漂移+批次陈旧，待重跑 ingest 消解） |
 | v1.4 | 2026-11-09 | P1 签收（T-038/T-039）：重跑入库接到 2026-11-09，accept 复跑 `verdict=PASS`（142/0/17，159 条/15 项），Q3/Q4 消解，global_status=OK；**用户签收 P1 通过（甲）**，里程碑转 DONE；cron 取手动（乙）。头部状态行「等待用户签收」为旧读数，以本行为准。事件 severity 复核（4 条）与 R-006 五偏差确认转 P2 前置 |
 | v1.5 | 2026-11-11 | 读数同步（T-041，纯文档、无判据/阈值/数据源变化）：§6.9 追加「现状读数同步」段，作废 2026-10-25 块里随批次漂移的读数——`counts` 由 12 条（2/9/1）变为 11 条（2/8/1，`wti_cl:RECENT_BAD_ROWS` 因 2026-10-22 坏日滑出近期窗口而不再出现，源缺陷未修）、`report_hash` 现为 `sha256:5ec7f396…`、`PROVISIONAL` 现为 `2026-11-11` 各 1 行且未到期改 `WAIT_UNTIL_AVAILABLE_AT`、`ZERO_FLOW`/`LOW_COVERAGE`/`REVISED_ONLY`/`RECENT_MISSING_ROWS` 逐项读数按本批更新；旧句保留留痕。看板头部同批补现行读数（accept 142/0/17、159 条/15 项、pytest `229 passed` EXIT=0、P1 里程碑=DONE、已 commit 未 push）。全量 `pytest` → `229 passed, 16 deselected` EXIT=0 |
+| v1.6 | 2026-11-12 | 运维闸落地（T-045，用户指令「监控并优化 `cli.py daily`」）：新增 §19.11——`daily` 起跑前必须原子取 `data/.daily.lock`（活锁→退出码 3 且零执行零写盘；陈旧 pid 清理重取；`--force` 越权但不删别人的锁），结束必须原子写 `data/decisions/<date>/daily_summary.json`（每步 `duration_ms`＋`total_ms`＋`scope`＋`config_hash`＋`lock`＋`rate_observation`＋产物指针），阶段日志固定 `daily step` 带 `duration_ms`；`rate_observation` 把 T-025 观察绑到墙钟档（只有 09:30–18:00 有效），晚间跑不再假装推进观察。§19.2 的 2026-10-25「未列 daily」句为旧读数，以 §19.11 为准。判据/阈值/数据源/`config_hash` 未变；全量 `pytest` → `236 passed, 16 deselected` EXIT=0 |
 
 ---
 

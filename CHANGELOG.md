@@ -1114,3 +1114,52 @@ pytest 终端本次未输出汇总行，条数取自 junit `testsuite` 属性。
 
 - §18.3 P2 表「8 行」是按该表现读行数计（注册表完整／事实包 PIT／确定性／仓位不变量／regime 与滞回／缺失策略／逆向原型只读／无 LLM 参与），未把 §18.1/§18.4 的通用闸重复计入。
 - 若用户选甲，trace 是否需要独立哈希（`trace_hash` 进 §4.4 清单）属口径变化，须按 §18.5 重开验收并同批改 AGENTS，本批不预定结论。
+
+## [运维] 2026-11-12 22:2x（T-045：`cli.py daily` 监控与优化 · 互斥锁＋耗时汇总）
+
+关联任务：`看板.md` T-045；判据出处 `AGENTS.md` §19.11（新增）、附录H v1.6；结构索引 `PROJECT.md`（`cli.py` 行、`test_cli.py` 行）。
+用户指令：「监控并优化：`/usr/bin/python3.10 src/main/python/com/sun/shensuan/gold/cli.py daily` 已执行」。
+
+### 监控现场读数（改动前）
+
+- 用户 22:03:39 触发的那次跑成功：`run_id=daily-20261112-220339`，18 节点 `OK=13/DEGRADED=5`，`overall=DEGRADED`，全局质量 `OK`、`red=[]`；起点 `22:03:40.434855` → `_quality.json` 落盘 `22:05:10.313130` ⇒ 抓取到质量闸约 **90 秒**。
+- 慢在哪：**只有 `pipeline_status.json` 答得了**。`_quality.json` 现读无耗时键、数据集无 `duration`；`ingest.py` 只把耗时写进状态文件。旧样本 9 源合计 64,213 ms，其中 `spdr_gold` 27,804 ms、`etf_518880` 16,812 ms（两者 69%）。
+- 日志答不了：`logs/app-2026-11-12.jsonl` 现读 16 行全是 `ingest outcome`，**0 行含 `duration_ms`**，没有 preflight/normalize/quality_gate/accept/doctor/rate 任何阶段行 ⇒ §15.7「阶段、状态、耗时、错误码齐全」不成立。
+- 汇总只进 stdout：`daily` 结束仅打印 `{step, exit}`，**不落盘**；无人值守（P7）时读不到判决，也看不出耗时。
+- 并发无保护：全仓 `grep lock` 零命中 ⇒ 两个 `daily` 可同时写同一批目录（2026-11-11 已发生过一次覆写 `_quality.json` 的事故，当时只加了 run-id 时间戳，没解决并发）。
+- `rate` 腿在晚间必然取折算价 ⇒ 看板 T-025「SAFE 中间价当日 09:15 后可见」的观察**永远不会被推进**，而汇总里看不出来。
+
+### 变更（`cli.py`，先写失败测试再改）
+
+- 新增 `DAILY_LOCK_NAME`/`EXIT_BUSY=3`/`_pid_alive`/`_acquire_daily_lock`/`_release_daily_lock`/`_daily_summary_path`/`_rate_observation`/`_pending_finalization`/`_finish_daily`。
+- `daily` 起跑前原子取 `data/.daily.lock`（内容 `"<pid> <ISO8601>"`）：活锁占用 → 退出码 **3**、一个子命令都不执行、不写任何产物；pid 不存在视为陈旧锁，删除后重取一次；`PermissionError` 算存在，不得当陈旧锁删；`--force` 可越权但**不取得所有权**，结束时绝不删别人的锁。
+- 每步用 `time.perf_counter()` 记 `duration_ms`，并写一条 `message="daily step"`、`extra={run_id, stage, status:"exit_<码>", duration_ms}` 的结构化日志（`duration_ms` 本就在日志字段白名单里，以前没人写）。
+- 结束（含硬停）原子写 `data/decisions/<date>/daily_summary.json`：`schema_version/run_id/date/started_at/ended_at/total_ms/daily[].{step,exit,duration_ms}/step_ms/overall/stopped_at/exit_code/scope/datasets/config_hash/lock/rate_observation/pending_finalization/artifacts{quality,remediation,pipeline_status,daily_summary,log_dir}`；落盘失败只写 `summary_error`，不打死日链。
+- 新增 `--datasets`（透传 ingest，汇总标 `scope=subset`，禁止冒充全量 §6.6）与 `--force`；`--run-id` 帮助文本按字面改为 `daily-YYYYMMDD-HHMMSS`。
+- `rate_observation`：`phase ∈ {pre_0930, intraday(09:30–18:00), post_1800}`，`observation_valid = (phase=="intraday")`——把 T-025 观察是否推进绑进汇总，晚间跑不再假装推进。
+- `pending_finalization`：从 `_remediation.json` 只取 `PROVISIONAL` 类问题（`dataset/rows/dates/max_available_at/refresh_due/action`）并给下一步；文件不存在时 `items=[]` 且明写「不猜」，不伪造尾巴。
+- 模块 docstring 退出码约定补 3=BUSY（旧文本只写 0/1/2）。
+
+### 新增测试（10 条，`integration/cli/test_cli.py`，全部离线）
+
+- 每步 `duration_ms` 与 `total_ms ≥ Σ`；`daily_summary.json` 落盘且含 `schema_version/run_id/config_hash/artifacts`；硬停（preflight=2）也落盘 `overall=STOPPED/stopped_at=preflight` 且只含已跑那一步。
+- 活锁 → 退出码 3 ＋ 子命令调用列表为空 ＋ 汇总文件不存在（负对照）；陈旧锁（真跑一个已退出子进程的 pid）→ 清理后五步全跑完并释放锁（放行对照）。
+- 5 条 `daily step` 日志逐条带 `duration_ms`/`run_id`；`--datasets` 透传且 `scope=subset`；`rate_observation` 在 22:30→`post_1800/false`、09:45→`intraday/true`；`pending_finalization` 只列 `PROVISIONAL`（夹具含 `ZERO_FLOW` 干扰项）；无诊断文件时不造尾巴。
+
+### 验证
+
+- 先红：新增前 7 条 `7 failed, 5 passed`（EXIT=1）；实现过程中 1 条 `NameError: atomic_write_json` 是我测试笔误（helper 未导入），改为写真文件后转绿——不是生产缺陷。
+- 后绿：`daily` 选择集 `15 passed`；全量 `/usr/bin/python3.10 -m pytest` → **`239 passed, 16 deselected`，EXIT=0**（旧基线 229，同批 +10）。
+- 真跑 A（22:15 全量）→ `DAILY_A_EXIT=0`，汇总 `overall=PASS`、`total_ms=86155`、`step_ms={preflight:16, ingest:75551, accept:10054, doctor:485, rate:46}`；日志出现 5 条 `daily step`（旧行为 0 条）；锁跑后已删除。
+- 真跑并发负对照（A 在跑时启 B）→ `DAILY_B_EXIT=3`、`overall=BUSY`、`detail=another_daily_running:pid_36025`，`_quality.json` sha256 前后同为 `3f0b69b74c6657227601465c…` ⇒ **零执行且零写盘**。
+- 真跑子集（22:20，`--datasets usdcny,usdcny_mid,comex_gc,wti_cl`）→ `SUBSET_EXIT=0`、`scope=subset`、`total_ms=32113`（ingest 21,460 / accept 10,004）、`accept` 仍 `PASS`；`pending_finalization` 现读 `comex_gc`/`wti_cl` 各 1 行 `2026-11-12`、`available_at=2026-11-13T06:00+08:00`、`refresh_due=false`、`action=WAIT_UNTIL_AVAILABLE_AT`。
+- `config_hash` 仍是 `sha256:0946643d…`（本批没碰任何 YAML）⇒ 不触发 §18.6 的 Q3 重跑要求。
+
+### 风险 / 未做
+
+- 未做并发抓取：`ingest` 75.5s 里两个源占大头，但总耗时已在 §17.11「日链确定性部分 <3min」预算内，且 `PipelineStatusWriter` 非线程安全——要提速需单独授权并先给它加写入锁。
+- 单次 `daily` 仍会重复抓全量（同日重跑代价 ≈86s 网络）；`--datasets` 提供了便宜的补抓手段，但没有自动「只补缺的那条腿」的调度（属 P7 cron）。
+- 明早 06:00 后必须再跑一次（全量或境外/外汇子集）才把 `PROVISIONAL` 转正；`daily_summary.pending_finalization.next_action` 已把这句话写进产物。
+- 子集验证把 `_quality.json` 一度写成 `scope=subset`，随即用一次全量跑恢复：`RESTORE_EXIT=0`、`run_id=daily-20261112-222101`、汇总 `scope=full`、`overall=PASS`、`total_ms=92637`（`ingest` 78,951 / `accept` 12,835 / `doctor` 728 / `rate` 94 / `preflight` 22），`_quality.json` 现读 `scope=full`、`global_status=OK`，锁已释放；尾巴仍是 `comex_gc`/`wti_cl` 各 1 行 `2026-11-12`、`refresh_due=false`。
+- 同日三次全量/子集耗时对照：86,155 ms（22:15 全量）／32,113 ms（22:20 四源子集）／92,637 ms（22:21 全量恢复），`accept` 稳定 10.0–12.8 s、`ingest` 75.6–79.0 s ⇒ 全量已在 §17.11 `<3min` 预算内，子集约为全量的 37%。
+- T-025 仍未有效推进：需要一次 09:30–18:00 之间的运行；现在汇总会如实标 `observation_valid=false` 而不是沉默。

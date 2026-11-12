@@ -10,6 +10,8 @@
   ``calendar`` 表示日历不可用或未覆盖基准日（需要 ``--refresh``）；
   ``doctor`` 表示存在必须人工处理的数据问题（``NEEDS_HUMAN``/``ERROR``）；
 - 2：预检存在 RED、配置/参数错误，或状态文件/质量报告缺失。
+- 3：仅 ``daily``：已有日更持锁（``data/.daily.lock`` 属于存活进程），本次一个
+  子命令都不执行、不写任何产物，等对方跑完再重跑；``--force`` 才越过。
 
 关键不变量：
 - 只读命令不写业务数据；``ingest``/``normalize`` 的写盘全部走 data 层。
@@ -21,8 +23,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import sys
+import time
 import tempfile
 from datetime import date
 from pathlib import Path
@@ -621,47 +625,289 @@ def command_doctor(config: LoadedConfig, args) -> int:
     return 0 if report.get("overall") in {"CLEAN", "AUTO_CONTAINED"} else 1
 
 
+DAILY_LOCK_NAME = ".daily.lock"
+DAILY_SCHEMA_VERSION = "1"
+EXIT_BUSY = 3
+"""`daily` 的并发拒绝码：已有日更持锁时返回它，不当参数错误（2）也不当验收失败（1）。"""
+
+
+def _pid_alive(pid: int) -> bool:
+    """判断 pid 是否还活着：发信号 0 只探测不杀伤。
+
+    Args:
+        pid: 进程号（>0）。
+
+    Returns:
+        True 表示进程存在（包括属于其他用户、无权限探测的 `PermissionError`
+        ——那也是存在，不能当作陈旧锁删掉）；pid<=0 或 `ProcessLookupError`
+        返回 False。
+    """
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _acquire_daily_lock(lock_path: Path, force: bool = False) -> tuple[bool, bool, str]:
+    """原子取得日更互斥锁。
+
+    2026-11-11 真跑事故：同日两批抓取撞 run-id，把 `_quality.json` 覆写成
+    FAILED。锁只防「两个 daily 同时写同一批目录」，不做排队。
+
+    Args:
+        lock_path: 锁文件路径（`data/.daily.lock`），内容形如 `"<pid> <启动时刻>"`。
+        force: True 时即使被活进程占用也放行（调用方自担覆写风险，且不取得所有权）。
+
+    Returns:
+        三元组 `(可以运行, 本次是否持有所有权, 原因)`。陈旧锁（pid 不存在）会
+        删除后重取一次；`PermissionError` 之类的真实冲突返回
+        `(False, False, 原因)`，调用方必须硬停而不是继续写。
+    """
+    def _try_create() -> tuple[bool, bool, str]:
+        """用 `O_CREAT|O_EXCL` 抢锁；成功即持锁，失败说明锁已存在。"""
+        try:
+            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        except FileExistsError:
+            return False, False, "already_held"
+        try:
+            os.write(fd, f"{os.getpid()} {iso(now_shanghai())}\n".encode("utf-8"))
+        finally:
+            os.close(fd)
+        return True, True, "acquired"
+
+    ok, owned, reason = _try_create()
+    if ok:
+        return True, True, reason
+    content = lock_path.read_text(encoding="utf-8").strip()
+    holder = int(content.split()[0]) if content.split() and content.split()[0].isdigit() else -1
+    if not _pid_alive(holder):
+        # 陈旧锁：持锁进程早就不在了，删掉重取一次；再失败就如实报冲突。
+        lock_path.unlink(missing_ok=True)
+        ok, owned, reason = _try_create()
+        if ok:
+            return True, True, "stale_replaced"
+        return not force, False, f"lock_raced:{reason}"
+    if force:
+        return True, False, f"forced_over_pid_{holder}"
+    return False, False, f"another_daily_running:pid_{holder}"
+
+
+def _release_daily_lock(lock_path: Path, owned: bool) -> None:
+    """释放本次持有的锁；不是本次创建的（`force` 越权或抢锁失败）绝不删别人的锁。"""
+    if owned:
+        lock_path.unlink(missing_ok=True)
+
+
+def _daily_summary_path(config: LoadedConfig) -> Path:
+    """返回本次日更汇总的落盘路径 `data/decisions/<date>/daily_summary.json`。"""
+    return config.path("decisions") / now_shanghai().date().isoformat() / "daily_summary.json"
+
+
+def _rate_observation(now) -> dict:
+    """按墙钟时点判断这条 `rate` 读数能不能用来推进 T-025 汇率观察。
+
+    §5.2 同日兜底：18:00 前折算价（`same_day_1800`）还没转正，只有 09:30–18:00
+    之间取到当日行才证明 SAFE 中间价（`same_day_0915`）当日可见；晚间跑必然取
+    折算价，测不到 SAFE 腿。观察窗口起点取 09:30（看板 T-025 的「09:30 后抽查」）。
+
+    Args:
+        now: 带时区的当前时刻（Asia/Shanghai）。
+
+    Returns:
+        `{"phase", "observation_valid", "window", "note"}`；`phase` 为
+        `pre_0930`/`intraday`/`post_1800` 三档之一。
+    """
+    minutes = now.hour * 60 + now.minute
+    if minutes < 9 * 60 + 30:
+        phase = "pre_0930"
+    elif minutes < 18 * 60:
+        phase = "intraday"
+    else:
+        phase = "post_1800"
+    return {
+        "phase": phase,
+        "observation_valid": phase == "intraday",
+        "window": "09:30-18:00 Asia/Shanghai",
+        "note": "T-025 只在 intraday 档推进；pre_0930 当日行尚未生成、post_1800 必然取折算价",
+    }
+
+
 def command_daily(config: LoadedConfig, args) -> int:
-    """一键日更：preflight→ingest→accept→doctor→rate，硬失败即停，末尾汇总。
+    """一键日更：preflight→ingest→accept→doctor→rate，硬失败即停，末尾汇总并落盘。
 
     Args:
         config: 已加载配置。
-        args: 含可选 ``run_id``（默认 ``daily-YYYYMMDD``）。
+        args: 含可选 ``run_id``（默认 ``daily-YYYYMMDD-HHMMSS``）、``datasets``
+            （逗号分隔的子集运行，透传给 ingest 并标 ``scope=subset``）、``force``
+            （跳过互斥检查，自担覆写风险）。
 
     Returns:
-        退出码：preflight/ingest 非 0 → 原码硬停（没有新数据不验收）；
-        否则取 accept 的退出码（0=PASS，1=判红，2=异常）。doctor 的
-        NEEDS_HUMAN（1）与 rate 读数只进汇总，不改变 daily 退出码。
+        退出码：0=accept PASS；1=accept 判红；2=preflight/ingest 硬停或 accept 异常；
+        3（``EXIT_BUSY``）=已有日更持锁，本次一个子命令都没执行。
 
     Notes:
-        仍手动触发（不装 cron）；本命令是将来 P7 cron 的载荷。各子命令
-        自身的 JSON 照常输出，末尾追加一条 daily 汇总 JSON。
+        仍手动触发（不装 cron）；本命令是将来 P7 cron 的载荷，所以监控读数必须
+        落盘而不是只在 stdout：每步 ``duration_ms``、``total_ms``、产物指针、
+        汇率观察时点档全部写进 ``data/decisions/<date>/daily_summary.json``，
+        并按 §15.7 给每步补一条含 ``duration_ms`` 的结构化日志。
     """
     today = now_shanghai().date().isoformat()
     stamp = now_shanghai().strftime("%H%M%S")
     run_id = getattr(args, "run_id", None) or f"daily-{today.replace('-', '')}-{stamp}"
+    datasets_arg = getattr(args, "datasets", None)
+    started_at = iso(now_shanghai())
+    t0 = time.perf_counter()
+    lock_path = config.path("data") / DAILY_LOCK_NAME
+    may_run, owned, reason = _acquire_daily_lock(lock_path, force=getattr(args, "force", False))
+    if not may_run:
+        _print_json(
+            {"daily": [], "overall": "BUSY", "run_id": run_id, "date": today, "detail": reason, "lock": str(lock_path)}
+        )
+        return EXIT_BUSY
+
+    logger = setup_logging(
+        config.path("logs"),
+        config.application.logging.retention_days,
+        config.application.logging.level,
+    )
     steps: list[dict] = []
 
     def run(name, func, ns):
-        """跑一个子命令并把退出码记进 steps；返回该退出码供调用方判停。"""
+        """跑一个子命令：记退出码与耗时，并写一条阶段日志；返回退出码供调用方判停。"""
+        step_t0 = time.perf_counter()
         code = func(config, ns)
-        steps.append({"step": name, "exit": code})
+        duration_ms = int((time.perf_counter() - step_t0) * 1000)
+        steps.append({"step": name, "exit": code, "duration_ms": duration_ms})
+        logger.info(
+            "daily step",
+            extra={
+                "run_id": run_id,
+                "stage": name,
+                "status": f"exit_{code}",
+                "duration_ms": duration_ms,
+            },
+        )
         return code
 
-    code = run("preflight", command_preflight, None)
-    if code != 0:
-        _print_json({"daily": steps, "overall": "STOPPED", "stopped_at": "preflight", "run_id": run_id})
-        return code
-    code = run("ingest", command_ingest, argparse.Namespace(datasets=None, start=None, end=None, run_id=run_id))
-    if code != 0:
-        _print_json({"daily": steps, "overall": "STOPPED", "stopped_at": "ingest", "run_id": run_id})
-        return code
-    accept_code = run("accept", command_accept, argparse.Namespace(stage="P1", date=None))
-    run("doctor", command_doctor, argparse.Namespace(write=True))
-    run("rate", command_rate, argparse.Namespace(date=today))
-    overall = "PASS" if accept_code == 0 else ("FAIL" if accept_code == 1 else "ERROR")
-    _print_json({"daily": steps, "overall": overall, "run_id": run_id, "date": today})
-    return accept_code
+    try:
+        summary: dict = {
+            "schema_version": DAILY_SCHEMA_VERSION,
+            "run_id": run_id,
+            "date": today,
+            "started_at": started_at,
+            "scope": "subset" if datasets_arg else "full",
+            "datasets": [item.strip() for item in datasets_arg.split(",")] if datasets_arg else None,
+            "config_hash": config.config_hash,
+            "lock": {"acquired": True, "owned": owned, "reason": reason},
+        }
+        code = run("preflight", command_preflight, None)
+        if code != 0:
+            _finish_daily(config, summary, steps, t0, "STOPPED", "preflight", code)
+            return code
+        code = run(
+            "ingest",
+            command_ingest,
+            argparse.Namespace(datasets=datasets_arg, start=None, end=None, run_id=run_id),
+        )
+        if code != 0:
+            _finish_daily(config, summary, steps, t0, "STOPPED", "ingest", code)
+            return code
+        accept_code = run("accept", command_accept, argparse.Namespace(stage="P1", date=None))
+        run("doctor", command_doctor, argparse.Namespace(write=True))
+        run("rate", command_rate, argparse.Namespace(date=today))
+        overall = "PASS" if accept_code == 0 else ("FAIL" if accept_code == 1 else "ERROR")
+        _finish_daily(config, summary, steps, t0, overall, None, accept_code)
+        return accept_code
+    finally:
+        _release_daily_lock(lock_path, owned)
+
+
+def _pending_finalization(config: LoadedConfig) -> dict:
+    """从 `_remediation.json` 提取「等 `available_at` 到期后重抓转正」的临时行读数。
+
+    境外 COMEX/WTI 每晚抓取必然留下 `fetched_at < available_at` 的 `PROVISIONAL` 行
+    （§6.5），次日 06:00 后再跑一次才转正、才进得了事实包。这里把它显式写进汇总，
+    避免「今天 `global_status=OK` 看着正常，事实包却永久缺最新一天」。
+
+    Returns:
+        `{"report_overall", "items": [...], "next_action"}`；诊断文件不存在时
+        `report_overall=None`、`items=[]`，并写明「没有可诊断的报告」，不猜值。
+    """
+    report = NormalizedStore(config.path("normalized")).read_remediation_report()
+    items = []
+    for issue in report.get("issues", []) or []:
+        if issue.get("code") != "PROVISIONAL":
+            continue
+        evidence = issue.get("evidence") or {}
+        items.append(
+            {
+                "dataset": issue.get("dataset"),
+                "rows": evidence.get("rows"),
+                "dates": evidence.get("dates"),
+                "max_available_at": evidence.get("max_available_at"),
+                "refresh_due": evidence.get("refresh_due"),
+                "action": issue.get("action"),
+            }
+        )
+    if not report:
+        next_action = "无 `_remediation.json`：先跑 ingest 或 doctor，不猜待转正行"
+    elif items:
+        next_action = "available_at 到期后（境外 06:00 之后）重跑 daily，或只跑境外/外汇子集"
+    else:
+        next_action = "无待转正的 PROVISIONAL 行"
+    return {"report_overall": report.get("overall"), "items": items, "next_action": next_action}
+
+
+def _finish_daily(config: LoadedConfig, summary: dict, steps: list[dict], t0: float, overall: str, stopped_at, exit_code: int) -> None:
+    """补全 daily 汇总（耗时、产物指针、观察档、终态），原子落盘并打印。
+
+    Args:
+        config: 已加载配置，用于派生四个产物路径。
+        summary: ``command_daily`` 已填好头部字段的字典，本函数就地补剩余字段。
+        steps: 各步 ``{step, exit, duration_ms}`` 列表。
+        t0: ``time.perf_counter()`` 起点，用于算 ``total_ms``。
+        overall: ``PASS``/``FAIL``/``ERROR``/``STOPPED``。
+        stopped_at: 硬停在哪一步；正常跑完传 None。
+        exit_code: 本次 daily 将返回的退出码，写进汇总便于事后对表。
+
+    Notes:
+        落盘失败不改退出码：汇总缺失由监控侧发现，不能反过来打死日链——但失败
+        原因会写进 ``summary["summary_error"]`` 并随 stdout 一起出来。
+    """
+    today = summary["date"]
+    path = _daily_summary_path(config)
+    summary.update(
+        {
+            "daily": steps,
+            "overall": overall,
+            "stopped_at": stopped_at,
+            "exit_code": exit_code,
+            "total_ms": int((time.perf_counter() - t0) * 1000),
+            "step_ms": {step["step"]: step["duration_ms"] for step in steps},
+            "ended_at": iso(now_shanghai()),
+            "rate_observation": _rate_observation(now_shanghai()),
+            "pending_finalization": _pending_finalization(config),
+            "artifacts": {
+                "quality": str(config.path("normalized") / "_quality.json"),
+                "remediation": str(config.path("normalized") / "_remediation.json"),
+                "pipeline_status": str(config.path("decisions") / today / "pipeline_status.json"),
+                "daily_summary": str(path),
+                "log_dir": str(config.path("logs")),
+            },
+        }
+    )
+    try:
+        atomic_write_json(path, summary)
+        summary["summary_path"] = str(path)
+    except OSError as exc:
+        summary["summary_error"] = f"{type(exc).__name__}: {exc}"
+    _print_json(summary)
+
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -700,7 +946,13 @@ def build_parser() -> argparse.ArgumentParser:
     doctor = sub.add_parser("doctor", help="自动识别数据问题并生成处置/能力清单（默认不写盘）")
     doctor.add_argument("--write", action="store_true", help="原子写 data/normalized/_remediation.json")
     daily = sub.add_parser("daily", help="一键日更：preflight→ingest→accept→doctor→rate（手动触发）")
-    daily.add_argument("--run-id", help="指定 run_id（默认 daily-YYYYMMDD）")
+    daily.add_argument("--run-id", help="指定 run_id（默认 daily-YYYYMMDD-HHMMSS）")
+    daily.add_argument("--datasets", help="逗号分隔的数据集名；子集运行，透传给 ingest 并在汇总标 scope=subset")
+    daily.add_argument(
+        "--force",
+        action="store_true",
+        help="已有日更持锁时仍强行执行（自担覆写风险；默认拒绝并返回退出码 3）",
+    )
     return parser
 
 

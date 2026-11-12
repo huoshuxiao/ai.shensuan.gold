@@ -18,7 +18,7 @@ from com.sun.shensuan.gold.cli import (
     command_validate_manual,
     main,
 )
-from com.sun.shensuan.gold.common.timeutil import now_shanghai
+from com.sun.shensuan.gold.common.timeutil import SHANGHAI, now_shanghai
 from com.sun.shensuan.gold.data.models import IngestOutcome, NodeStatus, Quality
 from com.sun.shensuan.gold.data.normalize import normalize_frame
 from com.sun.shensuan.gold.data.store import NormalizedStore
@@ -293,3 +293,212 @@ def test_daily_default_run_id_has_time_component(tmp_config, monkeypatch, capsys
     cli_mod.command_daily(tmp_config, Namespace(run_id=None))
     out = capsys.readouterr().out
     assert re.search(r'"run_id":\s*"daily-\d{8}-\d{6}"', out), "daily 默认 run-id 需为 daily-YYYYMMDD-HHMMSS"
+
+
+# ---------------------------------------------------------------------------
+# T-045：daily 的监控与互斥（每步耗时 / 汇总落盘 / stage 日志 / 锁 / 观察有效性）
+# ---------------------------------------------------------------------------
+
+DAILY_STEPS = [
+    ("command_preflight", 0),
+    ("command_ingest", 0),
+    ("command_accept", 0),
+    ("command_doctor", 1),
+    ("command_rate", 0),
+]
+
+
+def _stub_daily_steps(monkeypatch, calls, codes=None):
+    """把 daily 调用的五个子命令全部换成替身；calls 记录顺序，codes 覆盖各自退出码。"""
+    import com.sun.shensuan.gold.cli as cli_mod
+
+    overrides = codes or {}
+    for name, default in DAILY_STEPS:
+        monkeypatch.setattr(cli_mod, name, _stub_step(calls, name, overrides.get(name, default)))
+    return cli_mod
+
+
+def _json_documents(text):
+    """从 stdout 里按顺序切出多个 JSON 文档；`_print_json` 用 indent=2 多行打印，不能按行取。"""
+    decoder = json.JSONDecoder()
+    docs: list[dict] = []
+    cursor = 0
+    while cursor < len(text):
+        while cursor < len(text) and text[cursor].isspace():
+            cursor += 1
+        if cursor >= len(text):
+            break
+        document, cursor = decoder.raw_decode(text, cursor)
+        docs.append(document)
+    return docs
+
+
+def test_daily_summary_reports_step_durations_and_total(tmp_config, monkeypatch, capsys):
+    """监控读数：汇总每步必须带 `duration_ms`，并有 `total_ms`；§15.7 要求阶段耗时可见，不能只有退出码。"""
+    cli_mod = _stub_daily_steps(monkeypatch, [])
+    assert cli_mod.command_daily(tmp_config, Namespace(run_id=None)) == 0
+    payload = _json_documents(capsys.readouterr().out)[-1]
+    assert {s["step"] for s in payload["daily"]} == {"preflight", "ingest", "accept", "doctor", "rate"}
+    for step in payload["daily"]:
+        assert isinstance(step["duration_ms"], int) and step["duration_ms"] >= 0, f"缺耗时：{step}"
+    assert isinstance(payload["total_ms"], int) and payload["total_ms"] >= sum(
+        s["duration_ms"] for s in payload["daily"]
+    ), "total_ms 必须覆盖各步耗时之和"
+
+
+def test_daily_writes_summary_artifact(tmp_config, monkeypatch):
+    """汇总必须落盘（无人值守时 stdout 会丢）：`data/decisions/<date>/daily_summary.json` 带 run_id/config_hash/产物指针。"""
+    cli_mod = _stub_daily_steps(monkeypatch, [])
+    assert cli_mod.command_daily(tmp_config, Namespace(run_id=None)) == 0
+    summary = cli_mod._daily_summary_path(tmp_config)
+    assert summary.is_file(), "daily 汇总未落盘，cron/复核无凭证可读"
+    payload = json.loads(summary.read_text(encoding="utf-8"))
+    assert payload["schema_version"] == "1"
+    assert payload["run_id"] and payload["config_hash"]
+    assert payload["artifacts"]["pipeline_status"].endswith("pipeline_status.json")
+    assert payload["artifacts"]["quality"].endswith("_quality.json")
+
+
+def test_daily_refuses_when_another_daily_holds_the_lock(tmp_config, monkeypatch):
+    """负对照：锁被活进程持有时 daily 必须拒绝，且不执行任何子命令、不覆写质量报告（2026-11-11 覆写事故的形状）。"""
+    import os
+
+    calls: list[str] = []
+    cli_mod = _stub_daily_steps(monkeypatch, calls)
+    lock = tmp_config.path("data") / cli_mod.DAILY_LOCK_NAME
+    lock.write_text(f"{os.getpid()} startup\n", encoding="utf-8")
+    code = cli_mod.command_daily(tmp_config, Namespace(run_id=None))
+    assert code == cli_mod.EXIT_BUSY, f"并发日更应返回 {cli_mod.EXIT_BUSY}，实得 {code}"
+    assert calls == [], f"锁被占用时不得执行任何子命令：{calls}"
+    assert not cli_mod._daily_summary_path(tmp_config).exists(), "拒绝执行时不得留下汇总产物"
+
+
+def test_daily_clears_stale_lock_and_runs(tmp_config, monkeypatch):
+    """放行对照：持锁进程已死（pid 不存在）时，daily 清掉陈旧锁并照常跑完，跑完释放锁。"""
+    import subprocess
+
+    calls: list[str] = []
+    cli_mod = _stub_daily_steps(monkeypatch, calls)
+    dead = subprocess.Popen(["true"])
+    dead.wait()
+    lock = tmp_config.path("data") / cli_mod.DAILY_LOCK_NAME
+    lock.write_text(f"{dead.pid} startup\n", encoding="utf-8")
+    assert cli_mod.command_daily(tmp_config, Namespace(run_id=None)) == 0
+    assert [c for c in calls] == [n for n, _ in DAILY_STEPS], f"陈旧锁未清理：{calls}"
+    assert not lock.exists(), "跑完必须释放锁"
+
+
+def test_daily_logs_stage_lines_with_duration(tmp_config, monkeypatch):
+    """每步要写一条结构化日志（含 duration_ms），否则日志只有 ingest outcome、看不到阶段与耗时。"""
+    cli_mod = _stub_daily_steps(monkeypatch, [])
+    assert cli_mod.command_daily(tmp_config, Namespace(run_id=None)) == 0
+    lines = []
+    for path in sorted(tmp_config.path("logs").glob("app-*.jsonl")):
+        lines += [json.loads(text) for text in path.read_text(encoding="utf-8").splitlines() if text.strip()]
+    steps = [row for row in lines if row.get("message") == "daily step"]
+    assert {row["stage"] for row in steps} == {"preflight", "ingest", "accept", "doctor", "rate"}
+    for row in steps:
+        assert isinstance(row.get("duration_ms"), int), f"stage 日志缺耗时：{row}"
+        assert row.get("run_id"), f"stage 日志缺 run_id：{row}"
+
+
+def test_daily_passes_datasets_and_marks_subset(tmp_config, monkeypatch, capsys):
+    """子集运行要透传给 ingest 并在汇总标 `scope=subset`，禁止把子集冒充全量（§6.6 质量报告范围口径）。"""
+    captured = {}
+    calls: list[str] = []
+    cli_mod = _stub_daily_steps(monkeypatch, calls)
+
+    def spy_ingest(config, args):
+        """ingest 替身：记录收到的 datasets 后返回 0。"""
+        captured["datasets"] = args.datasets
+        calls.append("ingest")
+        return 0
+
+    monkeypatch.setattr(cli_mod, "command_ingest", spy_ingest)
+    assert cli_mod.command_daily(tmp_config, Namespace(run_id=None, datasets="etf_518880,usdcny")) == 0
+    assert captured["datasets"] == "etf_518880,usdcny"
+    payload = _json_documents(capsys.readouterr().out)[-1]
+    assert payload["scope"] == "subset" and payload["datasets"] == ["etf_518880", "usdcny"]
+
+
+def test_daily_marks_rate_observation_by_wall_clock(tmp_config, monkeypatch, capsys):
+    """T-025 观察只在 09:30–18:00 之间有效（此前折算价未转正才会落到中间价）；晚间跑必须在汇总里写 `observation_valid=false`。"""
+    from datetime import datetime
+
+    cli_mod = _stub_daily_steps(monkeypatch, [])
+    evening = datetime(2026, 11, 12, 22, 30, tzinfo=SHANGHAI)
+    monkeypatch.setattr(cli_mod, "now_shanghai", lambda: evening)
+    cli_mod.command_daily(tmp_config, Namespace(run_id=None))
+    payload = _json_documents(capsys.readouterr().out)[-1]
+    assert payload["rate_observation"]["observation_valid"] is False
+    assert payload["rate_observation"]["phase"] == "post_1800"
+
+    intraday = datetime(2026, 11, 12, 9, 45, tzinfo=SHANGHAI)
+    monkeypatch.setattr(cli_mod, "now_shanghai", lambda: intraday)
+    cli_mod.command_daily(tmp_config, Namespace(run_id=None))
+    payload = _json_documents(capsys.readouterr().out)[-1]
+    assert payload["rate_observation"]["observation_valid"] is True
+    assert payload["rate_observation"]["phase"] == "intraday"
+
+
+def test_daily_hard_stop_still_writes_summary(tmp_config, monkeypatch):
+    """硬停也必须有凭证：preflight=2 时汇总落盘 `overall=STOPPED`、`stopped_at=preflight`，只含已跑的那一步。"""
+    calls: list[str] = []
+    cli_mod = _stub_daily_steps(monkeypatch, calls, codes={"command_preflight": 2})
+    assert cli_mod.command_daily(tmp_config, Namespace(run_id=None)) == 2
+    payload = json.loads(cli_mod._daily_summary_path(tmp_config).read_text(encoding="utf-8"))
+    assert payload["overall"] == "STOPPED" and payload["stopped_at"] == "preflight"
+    assert [step["step"] for step in payload["daily"]] == ["preflight"], "硬停后不得继续执行后续步骤"
+    assert payload["exit_code"] == 2
+
+
+def test_daily_summary_surfaces_provisional_tail(tmp_config, monkeypatch):
+    """待转正的 PROVISIONAL 行必须显式进汇总：境外每晚必留尾，明早不补抓事实包就永远缺最新一天。"""
+    calls: list[str] = []
+    cli_mod = _stub_daily_steps(monkeypatch, calls)
+    (tmp_config.path("normalized") / "_remediation.json").write_text(
+        json.dumps(
+            {
+                "overall": "NEEDS_HUMAN",
+                "issues": [
+                    {
+                        "code": "PROVISIONAL",
+                        "dataset": "comex_gc",
+                        "action": "WAIT_UNTIL_AVAILABLE_AT",
+                        "evidence": {
+                            "rows": 1,
+                            "dates": ["2026-11-12"],
+                            "max_available_at": "2026-11-13T06:00:00+08:00",
+                            "refresh_due": False,
+                        },
+                    },
+                    {
+                        "code": "ZERO_FLOW",
+                        "dataset": "wti_cl",
+                        "action": "PRICE_ONLY_BLOCK_VOLUME_FIELDS",
+                        "evidence": {"rows": 7652, "zero_rows": 15304},
+                    },
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    assert cli_mod.command_daily(tmp_config, Namespace(run_id=None)) == 0
+    payload = json.loads(cli_mod._daily_summary_path(tmp_config).read_text(encoding="utf-8"))
+    tail = payload["pending_finalization"]
+    assert tail["report_overall"] == "NEEDS_HUMAN"
+    assert [item["dataset"] for item in tail["items"]] == ["comex_gc"], "只应列出 PROVISIONAL 类问题"
+    assert tail["items"][0]["refresh_due"] is False
+    assert "06:00" in tail["next_action"]
+
+
+def test_daily_summary_without_remediation_report_does_not_invent_tail(tmp_config, monkeypatch):
+    """放行对照：没有 `_remediation.json` 时不得凭空造待转正行，必须写清「没有可诊断的报告」。"""
+    calls: list[str] = []
+    cli_mod = _stub_daily_steps(monkeypatch, calls)
+    assert cli_mod.command_daily(tmp_config, Namespace(run_id=None)) == 0
+    payload = json.loads(cli_mod._daily_summary_path(tmp_config).read_text(encoding="utf-8"))
+    tail = payload["pending_finalization"]
+    assert tail["items"] == [] and tail["report_overall"] is None
+    assert "不猜" in tail["next_action"]
