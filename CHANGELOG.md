@@ -1163,3 +1163,35 @@ pytest 终端本次未输出汇总行，条数取自 junit `testsuite` 属性。
 - 子集验证把 `_quality.json` 一度写成 `scope=subset`，随即用一次全量跑恢复：`RESTORE_EXIT=0`、`run_id=daily-20261112-222101`、汇总 `scope=full`、`overall=PASS`、`total_ms=92637`（`ingest` 78,951 / `accept` 12,835 / `doctor` 728 / `rate` 94 / `preflight` 22），`_quality.json` 现读 `scope=full`、`global_status=OK`，锁已释放；尾巴仍是 `comex_gc`/`wti_cl` 各 1 行 `2026-11-12`、`refresh_due=false`。
 - 同日三次全量/子集耗时对照：86,155 ms（22:15 全量）／32,113 ms（22:20 四源子集）／92,637 ms（22:21 全量恢复），`accept` 稳定 10.0–12.8 s、`ingest` 75.6–79.0 s ⇒ 全量已在 §17.11 `<3min` 预算内，子集约为全量的 37%。
 - T-025 仍未有效推进：需要一次 09:30–18:00 之间的运行；现在汇总会如实标 `observation_valid=false` 而不是沉默。
+
+## [验证] 2026-11-12 22:52（T-046：联网冒烟 16 条与克隆闸现跑＋有牙证据）
+
+关联任务：`看板.md` T-046；规范出处 `AGENTS.md` §17.13（新增）、附录H v1.7。
+用户指令：「跑，并验证——未跑网络冒烟 16 条与克隆闸（旧读数）」。
+
+### 新增
+
+- `AGENTS.md` §17.13：把两道闸的**可复制命令、退出码口径、覆盖范围、两条陷阱、两条负对照**固定下来；并明写克隆闸不能证明什么（不覆盖联网、不证明数据内容正确）。
+- `看板.md` T-046 行：本批现跑读数与踩坑记录。
+
+### 现跑读数（旧读数作废，旧句留痕）
+
+- 联网冒烟：`/usr/bin/python3.10 -m pytest -m network src/test/python/com/sun/shensuan/gold/contract/adapters/test_network_smoke.py` → **`16 passed in 58.89s`，NETWORK_EXIT=0**（起场 `MemAvailable=5.18 GiB`）。条数构成现读为 15 条数据集冒烟（`list-datasets`：20 个数据集、16 个 enabled，其中 `geo_events` 走手工适配器不进联网层）＋ 1 条上交所日历冒烟；用例由 `pytest_generate_tests` 从配置动态参数化，故条数随「启用非手工源」数增长（T-016 旧读数 15 条 / 78.29s）。
+- 克隆闸：`git archive HEAD`（HEAD=`8becd0b`）解到 `data/tmp/`（gitignored）→ 解包 **74 个文件**、克隆内无 `data/` → 在克隆里跑离线全量 → **`239 passed, 16 deselected in 42.19s`，CLONE_EXIT=0**（T-036 旧读数 215 passed）。
+
+### 负对照（两条都动被试侧，不动判据）
+
+- **NC3（克隆闸能看见「测试直读 gitignored 生产数据」）**：在 pristine 克隆里新增一条读 `data/normalized/etf_518880.csv` 的用例 → `2 failed, 238 passed`：一条红在该文件确实不存在（缺陷类被抓），另一红是架构闸 `test_all_python_files_listed_in_project_md` 顺手抓到该文件未登记 —— 两道闸各自真在咬。
+- **NC4（克隆闸能看见源码漏提交）**：`rm src/main/python/com/sun/shensuan/gold/data/rates.py` → `ModuleNotFoundError: com.sun.shensuan.gold.data.rates`，3 个测试文件收集失败、`205 deselected, 3 errors`、EXIT=2（不是静默放行）。
+- **踩到的两条陷阱（已写进 §17.13）**：①复用「已经跑过测试的克隆」时，`load_config()`/preflight 已把 `data/`、`logs/` 建出来，NC3 的前提断言 `assert not (REPO_ROOT/"data").exists()` 先失败——那不是缺陷被抓，是我的前提失效 ⇒ 规范改为「每枚对照用新解包的克隆」；②`parents[N]` 数错（`com/sun/shensuan/gold` 是三层）会让对照因为「找不到 AGENTS.md」这类别的原因失败，看起来像抓到缺陷 ⇒ 规范改为「先自证仓库根，再断言被试缺陷」。
+
+### 环境与清理
+
+- 验证只在一次性克隆内进行；主仓 `src/`、`config/`、`data/` 未被改动：跑完 `rm -rf` 临时克隆后 `git status --porcelain` 为空，`_quality.json` 仍是 `run_id=daily-20261112-222101`、`scope=full`、`global_status=OK`，`daily_summary.json` 未被本轮改动，`data/.daily.lock` 不存在。
+- 本批未改代码/配置/判据 ⇒ `config_hash` 不变、不触发 Q3；离线全量在改动文档后复跑 `239 passed, 16 deselected` EXIT=0。
+
+### 风险 / 未做
+
+- 网络冒烟的绿只证明「15 个启用非手工源 ＋ 上交所日历当下可抓且形状不变」，不证明价格质量与阈值口径（后者归 `accept`/`doctor`），也不覆盖手工源（`geo_events`）。
+- 克隆闸没有接入任何自动化（本仓库无 CI），仍是「要人跑」的一次性验证；§17.13 只是把命令固定下来，不等于它每天会跑。
+- 未在克隆内验证 `accept --stage P1`（该判据依赖 `data/`，克隆里没有）；这属于设计边界而非缺陷。

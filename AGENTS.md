@@ -1965,6 +1965,43 @@ README 第 15 条：非正式代码先在 `test` 目录验证，验证成功后�
 
 没有输出/退出码，不得写“通过”。
 
+### 17.13 联网冒烟与克隆闸的可复现命令（2026-11-12 补）
+
+> 用户指令（2026-11-12）：「跑，并验证（未跑网络冒烟 16 条与克隆闸——旧读数）」。
+> 这两道闸此前只有看板行里的历史读数（联网冒烟 15 条 78.29s／克隆闸 215 passed），
+> 没有可复制的命令与「它有没有牙」的证据。本节把两者固定下来。
+> 计数口径：联网冒烟的**条数**（16）＝15 条数据集冒烟＋1 条日历冒烟，与「启用数据集 16 个」
+> 是两回事（那 16 个里有 `geo_events` 走手工适配器，不联网）。
+
+**联网冒烟（16 条，默认不跑）**
+
+```text
+命令：/usr/bin/python3.10 -m pytest -m network src/test/python/com/sun/shensuan/gold/contract/adapters/test_network_smoke.py
+退出码：0 = 全部源可用；非 0 = 某源断供/限流/形状变化（用例 id 直接带数据集名）
+覆盖：15 条数据集冒烟（`config/data_sources.yaml` 现读 20 个数据集、16 个 `enabled`，其中
+      `geo_events` 走手工适配器不进联网层）＋ 1 条上交所日历冒烟 ＝ 16 条；用例由
+      `pytest_generate_tests` 从配置动态参数化，新增启用非手工源会自动纳入
+```
+
+- 断言只到冒烟级（非空表、`source` 与配置一致、`fetched_at` 带时区、news 列契约、GPR 带 `REVISED_ONLY`、日历形状），严格口径仍由离线契约测试负责——这是设计选择，不是偷懒。
+- 现状读数（2026-11-12 22:45 现跑）：`16 passed in 58.89s`，NETWORK_EXIT=0，`MemAvailable=5.18 GiB`。
+
+**克隆闸（证明 `git archive HEAD` 的产物能独立跑绿）**
+
+```text
+GATE=<仓库内某个被 gitignore 的临时目录>     # 本项目实测用 data/tmp/clone_gate_b（/data/ 已忽略）
+mkdir -p "$GATE" && git archive HEAD | tar -x -C "$GATE"
+cd "$GATE" && /usr/bin/python3.10 -m pytest
+退出码：0 = 克隆可跑；非 0 = 有源码/包未提交，或有测试直读 gitignored 生产数据
+```
+
+- 现状读数（2026-11-12 22:46 现跑，HEAD=`8becd0b`）：解包 74 个文件、克隆内**无** `data/`；`239 passed, 16 deselected in 42.19s`，CLONE_EXIT=0。
+- **陷阱 1（ pristine 才算数）**：在同一次 pytest 运行之后，`load_config()`/preflight 会在克隆里创建 `data/`、`logs/`、`report/`，此后「data 不存在」类前提已经不再成立。负对照必须用**新解包的克隆**；复用跑过测试的克隆会得到一个因前提失效而失败的读数（本批实测踩到：对照在第二次运行时先输给了 `assert not (REPO_ROOT/"data").exists()`）。
+- **陷阱 2（路径自证先行）**：对照文件里的仓库根要靠 `parents[N]` 数出来，数错会让它因为「找不到 AGENTS.md」这类**别的原因**失败，看着像抓到缺陷。规范：先 `assert (REPO_ROOT/"AGENTS.md").is_file()` 自证，再断言被试缺陷。
+- 牙的证据 1（NC3，pristine 克隆内新加一条直读 `data/normalized/etf_518880.csv` 的用例）：克隆闸抓到 `1 failed`（该文件确实不存在），同时架构闸顺手抓到该文件未在 `PROJECT.md` 登记（`test_all_python_files_listed_in_project_md` FAILED）——两道闸各自都真的在咬。
+- 牙的证据 2（NC4，克隆内 `rm src/main/python/com/sun/shensuan/gold/data/rates.py`）：`ModuleNotFoundError` 连带 3 个测试文件收集失败、`205 deselected, 3 errors`，退出码 2 ⇒ 源码漏提交会被当场拦下，不会静默放行。
+- 克隆闸不能证明什么：它不覆盖联网路径（默认 `-m "not network"`），也不证明数据内容正确（那是 `accept`/`doctor` 的职责）。
+
 ---
 
 ## 18. 分阶段路线图
@@ -2908,6 +2945,7 @@ docker run --rm --network none -v "$PWD/data:/app/data:ro" gold-system:dev pytes
 | v1.4 | 2026-11-09 | P1 签收（T-038/T-039）：重跑入库接到 2026-11-09，accept 复跑 `verdict=PASS`（142/0/17，159 条/15 项），Q3/Q4 消解，global_status=OK；**用户签收 P1 通过（甲）**，里程碑转 DONE；cron 取手动（乙）。头部状态行「等待用户签收」为旧读数，以本行为准。事件 severity 复核（4 条）与 R-006 五偏差确认转 P2 前置 |
 | v1.5 | 2026-11-11 | 读数同步（T-041，纯文档、无判据/阈值/数据源变化）：§6.9 追加「现状读数同步」段，作废 2026-10-25 块里随批次漂移的读数——`counts` 由 12 条（2/9/1）变为 11 条（2/8/1，`wti_cl:RECENT_BAD_ROWS` 因 2026-10-22 坏日滑出近期窗口而不再出现，源缺陷未修）、`report_hash` 现为 `sha256:5ec7f396…`、`PROVISIONAL` 现为 `2026-11-11` 各 1 行且未到期改 `WAIT_UNTIL_AVAILABLE_AT`、`ZERO_FLOW`/`LOW_COVERAGE`/`REVISED_ONLY`/`RECENT_MISSING_ROWS` 逐项读数按本批更新；旧句保留留痕。看板头部同批补现行读数（accept 142/0/17、159 条/15 项、pytest `229 passed` EXIT=0、P1 里程碑=DONE、已 commit 未 push）。全量 `pytest` → `229 passed, 16 deselected` EXIT=0 |
 | v1.6 | 2026-11-12 | 运维闸落地（T-045，用户指令「监控并优化 `cli.py daily`」）：新增 §19.11——`daily` 起跑前必须原子取 `data/.daily.lock`（活锁→退出码 3 且零执行零写盘；陈旧 pid 清理重取；`--force` 越权但不删别人的锁），结束必须原子写 `data/decisions/<date>/daily_summary.json`（每步 `duration_ms`＋`total_ms`＋`scope`＋`config_hash`＋`lock`＋`rate_observation`＋产物指针），阶段日志固定 `daily step` 带 `duration_ms`；`rate_observation` 把 T-025 观察绑到墙钟档（只有 09:30–18:00 有效），晚间跑不再假装推进观察。§19.2 的 2026-10-25「未列 daily」句为旧读数，以 §19.11 为准。判据/阈值/数据源/`config_hash` 未变；全量 `pytest` → `236 passed, 16 deselected` EXIT=0 |
+| v1.7 | 2026-11-12 | 两道闸现跑并补上牙的证据（T-046，用户指令「跑，并验证：未跑网络冒烟 16 条与克隆闸」）：新增 §17.13 固定可复现命令与口径。现跑读数——联网冒烟 `16 passed in 58.89s` EXIT=0（旧读数为 15 条/78.29s，条数随启用源增长）；克隆闸对 HEAD `8becd0b` 解包 74 文件、无 `data/`，`239 passed, 16 deselected in 42.19s` EXIT=0（旧读数 215 passed）。两条负对照证明闸有牙：NC3 在 pristine 克隆内加直读 `data/normalized/etf_518880.csv` 的用例 → 该用例判红且架构闸同时抓到未登记；NC4 删掉 `data/rates.py` → `ModuleNotFoundError`、3 个测试文件收集失败、EXIT=2。并记两条陷阱：跑过测试的克隆不再 pristine、对照必须先自证仓库根。无代码/判据/阈值变更 |
 
 ---
 
