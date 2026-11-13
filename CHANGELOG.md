@@ -1216,3 +1216,25 @@ pytest 终端本次未输出汇总行，条数取自 junit `testsuite` 属性。
 ### 边界
 
 - 当日 `data/decisions/2026-11-13/daily_summary.json` 由改动前的代码生成，`next_action` 仍是旧文案；新逻辑在下一次 `daily` 运行时生效，本批不重跑抓取、不改写该产物。
+
+## [数据] 2026-11-13 14:24（T-048：4 条 XGE 事件 severity 人工复核 · 解锁 `GEO_EVENT_SEVERITY`）
+
+关联任务：`看板.md` T-048、R-005（部分关闭）、R-014；规范出处 `AGENTS.md` §6.9。
+用户指令：2026-11-13「确认完毕，可以」（选中待复核的 4 条 XGE 事件清单）。
+
+### 变更
+
+- `data/manual/geo_events.csv`：4 行 XGE 事件新增 `severity_reviewed=1`，severity 维持用户确认的 2 级、地区与 `source_url` 不变（`data/` 被 `.gitignore` 的 `/data/` 忽略，本项只落本地数据，不入库）。
+- `data/normalized/_remediation.json`：由 `cli.py doctor --write` 重算落盘。
+
+### 现跑读数（2026-11-13 14:21–14:24 CST）
+
+- `cli.py validate-manual` → `geo_events rows=4 status=OK`，`VALIDATE_EXIT=0`。
+- `cli.py doctor`（只读）→ `DOCTOR_EXIT=0`、`overall=AUTO_CONTAINED`、`counts={"AUTO_RESOLVED":2,"CONTAINED":9,"NEEDS_HUMAN":0}`、`review_queue=0`；`geo_events` 能力 `display/feature/score/promotion_eligible` 全为 `true`、`blocked_features=[]`（复核前 `feature/score/promotion=false` 且封 `GEO_EVENT_SEVERITY`）。
+- `cli.py doctor --write` → 同上；`report_hash=sha256:0b6475e9b067cef3937c32dbf29e5aeec653cb413ac7b61c693fba50035a0d31`。
+
+### 边界
+
+- `_quality.json` 内嵌的 `remediation` 摘要与 2026-11-13 的 `daily_summary.json` 仍是复核前的 `NEEDS_HUMAN`（前者由下一次 `ingest` 刷新，后者是历史产物不改写）。
+- 解锁只表示「这 4 条 event 的 severity 可进入地缘分数」，不表示 `GEO_SCORE` 或 `GEO_SHOCK` 已实现；P2 仍按 §6.9 读取能力清单。
+- R-005 的「多年事件史不可回补」仍未关闭（快讯窗口 86 天）。
