@@ -1195,3 +1195,24 @@ pytest 终端本次未输出汇总行，条数取自 junit `testsuite` 属性。
 - 网络冒烟的绿只证明「15 个启用非手工源 ＋ 上交所日历当下可抓且形状不变」，不证明价格质量与阈值口径（后者归 `accept`/`doctor`），也不覆盖手工源（`geo_events`）。
 - 克隆闸没有接入任何自动化（本仓库无 CI），仍是「要人跑」的一次性验证；§17.13 只是把命令固定下来，不等于它每天会跑。
 - 未在克隆内验证 `accept --stage P1`（该判据依赖 `data/`，克隆里没有）；这属于设计边界而非缺陷。
+
+## [运维] 2026-11-13 14:18（T-047：`daily` 待转正提示按 items 到期时间生成）
+
+关联任务：`看板.md` T-047；规范出处 `AGENTS.md` §19.11（汇总落盘）。
+用户指令：「修」（针对 2026-11-13 日更验证时提出的 `next_action` 文案瑕疵）。
+
+### 变更
+
+- `cli.py::_pending_finalization`：`next_action` 的到期时间改为按 `items[].max_available_at` 取最早/最晚生成，不再写死「境外 06:00 之后」。14:03 这类盘中跑会同时留下 `usdcny` 当日 18:00 与 `comex_gc`/`wti_cl` 次日 06:00 两种点，旧文案会把外汇那行说成「明早再说」。
+- 新增集成测试 `integration/cli/test_cli.py::test_daily_summary_next_action_uses_item_due_times`：两行到期时间不同时，最早/最晚都必须出现在 `next_action`，旧固定文案不得再出现。
+
+### 验收证据（2026-11-13 现跑）
+
+- `/usr/bin/python3.10 -m pytest src/test/python/com/sun/shensuan/gold/integration/cli/test_cli.py -k daily` → `16 passed, 9 deselected in 7.07s`，EXIT=0。
+- 负对照：把 `next_action` 临时还原成旧固定文案 → 同一条新用例 `1 failed, 24 deselected in 0.61s`（EXIT=1）；恢复后 `sha256sum cli.py` 回到 `7282d513bdccc65c3414fb7b7cc11e360cfc1a3f42dbe2e1068a4f151ccfe74d`。
+- 全量 `/usr/bin/python3.10 -m pytest` → `240 passed, 16 deselected in 40.47s`，EXIT=0（旧读数 239 passed）。
+- 本批未改阈值/数据源/交易口径 ⇒ `config_hash` 不变（仍为 `sha256:0946643d…`）。
+
+### 边界
+
+- 当日 `data/decisions/2026-11-13/daily_summary.json` 由改动前的代码生成，`next_action` 仍是旧文案；新逻辑在下一次 `daily` 运行时生效，本批不重跑抓取、不改写该产物。

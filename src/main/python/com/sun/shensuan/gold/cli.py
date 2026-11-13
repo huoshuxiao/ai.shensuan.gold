@@ -837,6 +837,8 @@ def _pending_finalization(config: LoadedConfig) -> dict:
     Returns:
         `{"report_overall", "items": [...], "next_action"}`；诊断文件不存在时
         `report_overall=None`、`items=[]`，并写明「没有可诊断的报告」，不猜值。
+        `next_action` 的到期时间按 items 自身的 `max_available_at` 生成最早/最晚，
+        不写死「境外 06:00」——外汇（`usdcny`）当日 18:00 与境外次日 06:00 不同。
     """
     report = NormalizedStore(config.path("normalized")).read_remediation_report()
     items = []
@@ -857,7 +859,14 @@ def _pending_finalization(config: LoadedConfig) -> dict:
     if not report:
         next_action = "无 `_remediation.json`：先跑 ingest 或 doctor，不猜待转正行"
     elif items:
-        next_action = "available_at 到期后（境外 06:00 之后）重跑 daily，或只跑境外/外汇子集"
+        # 到期时间来自 items：14:03 这类盘中跑会遇到 usdcny 当日 18:00 与境外次日
+        # 06:00 两种点，固定写「境外 06:00」会把外汇那行漏成「明早再说」。
+        dues = sorted({str(item["max_available_at"]) for item in items if item.get("max_available_at")})
+        if not dues:
+            next_action = "available_at 到期后重跑 daily 或只跑对应数据集子集（待转正行未给出到期时间）"
+        else:
+            window = f"最早 {dues[0]}，最晚 {dues[-1]}" if len(dues) > 1 else dues[0]
+            next_action = f"available_at 到期后重跑 daily 或只跑对应数据集子集（{window}）"
     else:
         next_action = "无待转正的 PROVISIONAL 行"
     return {"report_overall": report.get("overall"), "items": items, "next_action": next_action}

@@ -493,6 +493,50 @@ def test_daily_summary_surfaces_provisional_tail(tmp_config, monkeypatch):
     assert "06:00" in tail["next_action"]
 
 
+def test_daily_summary_next_action_uses_item_due_times(tmp_config, monkeypatch):
+    """盘中跑的待转正提示必须按 items 到期时间生成：usdcny 当日 18:00 不得被「境外 06:00」盖掉。"""
+    calls: list[str] = []
+    cli_mod = _stub_daily_steps(monkeypatch, calls)
+    (tmp_config.path("normalized") / "_remediation.json").write_text(
+        json.dumps(
+            {
+                "overall": "NEEDS_HUMAN",
+                "issues": [
+                    {
+                        "code": "PROVISIONAL",
+                        "dataset": "usdcny",
+                        "action": "WAIT_UNTIL_AVAILABLE_AT",
+                        "evidence": {
+                            "rows": 1,
+                            "dates": ["2026-11-13"],
+                            "max_available_at": "2026-11-13T18:00:00+08:00",
+                            "refresh_due": False,
+                        },
+                    },
+                    {
+                        "code": "PROVISIONAL",
+                        "dataset": "comex_gc",
+                        "action": "WAIT_UNTIL_AVAILABLE_AT",
+                        "evidence": {
+                            "rows": 1,
+                            "dates": ["2026-11-13"],
+                            "max_available_at": "2026-11-14T06:00:00+08:00",
+                            "refresh_due": False,
+                        },
+                    },
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    assert cli_mod.command_daily(tmp_config, Namespace(run_id=None)) == 0
+    tail = json.loads(cli_mod._daily_summary_path(tmp_config).read_text(encoding="utf-8"))["pending_finalization"]
+    assert "2026-11-13T18:00:00+08:00" in tail["next_action"], "最早到期时间必须来自 usdcny 行"
+    assert "2026-11-14T06:00:00+08:00" in tail["next_action"], "最晚到期时间必须来自境外行"
+    assert "境外 06:00 之后" not in tail["next_action"], "固定文案不得再出现"
+
+
 def test_daily_summary_without_remediation_report_does_not_invent_tail(tmp_config, monkeypatch):
     """放行对照：没有 `_remediation.json` 时不得凭空造待转正行，必须写清「没有可诊断的报告」。"""
     calls: list[str] = []
